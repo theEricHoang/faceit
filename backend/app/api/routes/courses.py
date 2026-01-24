@@ -10,6 +10,7 @@ def create_class(payload: CreateClassRequest):
     return CreateClassResponse(
         class_id=uuid4(),
         course_code=payload.course_code,
+        course_name=payload.course_name,
         section=payload.section,
         term=payload.term
     )

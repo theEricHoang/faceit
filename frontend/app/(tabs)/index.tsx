@@ -10,9 +10,11 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import ClassCard from "../../components/ClassCard";
 import { SafeAreaView } from "react-native-safe-area-context";
+import CreateClassModal from "../../components/CreateClassModal";
 
 export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [showModal, setShowModal] = useState(false);
 
   const classes = [
     {
@@ -72,7 +74,7 @@ export default function HomeScreen() {
         {/* Class list header */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>My Classes</Text>
-          <Pressable style={styles.addButton}>
+          <Pressable style={styles.addButton} onPress={() => setShowModal(true)}>
             <Ionicons name="add" size={20} color="#fff" />
           </Pressable>
         </View>
@@ -100,6 +102,7 @@ export default function HomeScreen() {
           />
         ))}
       </ScrollView>
+      <CreateClassModal visible={showModal} onClose={() => setShowModal(false)} />
     </SafeAreaView>
   );
 }

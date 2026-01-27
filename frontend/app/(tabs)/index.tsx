@@ -1,98 +1,176 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { useState } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  TextInput,
+  Pressable,
+  StyleSheet,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import ClassCard from "../../components/ClassCard";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const [searchQuery, setSearchQuery] = useState("");
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  const classes = [
+    {
+      id: 1,
+      courseCode: "CS101",
+      section: "A",
+      schedule: "M-W 10:00AM - 11:15AM",
+      studentCount: 35,
+    },
+    {
+      id: 2,
+      courseCode: "CS102",
+      section: "B",
+      schedule: "T-Th 2:00PM - 3:15PM",
+      studentCount: 42,
+    },
+    {
+      id: 3,
+      courseCode: "CS201",
+      section: "A",
+      schedule: "M-W-F 9:00AM - 9:50AM",
+      studentCount: 28,
+    },
+    {
+      id: 4,
+      courseCode: "CS301",
+      section: "C",
+      schedule: "T-Th 11:00AM - 12:15PM",
+      studentCount: 31,
+    },
+    {
+      id: 5,
+      courseCode: "CS150",
+      section: "A",
+      schedule: "M-W 1:00PM - 2:15PM",
+      studentCount: 38,
+    },
+  ];
+
+  const filteredClasses = classes.filter((cls) =>
+    `${cls.courseCode} ${cls.section}`
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase())
+  );
+
+  return (
+    <SafeAreaView style={styles.container} edges={["top"]}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.title}>FaceIT</Text>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>WJ</Text>
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content}>
+        {/* Class list header */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>My Classes</Text>
+          <Pressable style={styles.addButton}>
+            <Ionicons name="add" size={20} color="#fff" />
+          </Pressable>
+        </View>
+
+        {/* Search */}
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={18} color="#888" />
+          <TextInput
+            placeholder="Search classes..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            style={styles.searchInput}
+            placeholderTextColor={"#888"}
+          />
+        </View>
+
+        {/* Class list */}
+        {filteredClasses.map((cls) => (
+          <ClassCard
+            key={cls.id}
+            courseCode={cls.courseCode}
+            section={cls.section}
+            schedule={cls.schedule}
+            studentCount={cls.studentCount}
+          />
+        ))}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#fff",
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  header: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderColor: "#eee",
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: "700",
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  content: {
+    padding: 16,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  addButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f3f3f3",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 16,
   },
 });

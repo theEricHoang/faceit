@@ -19,11 +19,28 @@ This is the backend service for FaceIT.
 
 ## Getting Started
 
-1. Install dependencies:
+1. Install pyenv [here](https://github.com/pyenv/pyenv?tab=readme-ov-file#b-set-up-your-shell-environment-for-pyenv)
+
+
+2. Create a new Python virtual environment and activate it:
+
+   **On macOS/Linux:**
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
+
+   **On Windows (PowerShell):**
+   ```powershell
+   python -m venv .venv
+   .venv\Scripts\Activate.ps1
+   ```
+
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-2. Run the development server:
+4. Run the development server:
    ```bash
    uvicorn app.main:app --reload
    ```

@@ -1,11 +1,14 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
+type AttendanceStatus = "Present" | "Absent" | "Late";
+
 type ClassCardProps = {
   courseCode: string;
   section: string;
   schedule: string;
-  studentCount: number;
+  studentCount?: number;
+  attendanceStatus?: AttendanceStatus;
   onPress?: () => void;
 };
 
@@ -15,6 +18,7 @@ export default function ClassCard({
   section,
   schedule,
   studentCount,
+  attendanceStatus,
   onPress,
 }: ClassCardProps) {
   return (
@@ -24,7 +28,12 @@ export default function ClassCard({
           {courseCode} – Section {section}
         </Text>
         <Text style={styles.subtitle}>{schedule}</Text>
-        <Text style={styles.meta}>{studentCount} Students</Text>
+        {studentCount !== undefined && (
+          <Text style={styles.meta}>{studentCount} Students</Text>
+        )}
+        {attendanceStatus && (
+            <Text style={styles.meta}>Attendance: {attendanceStatus}</Text>
+        )}
       </View>
       <Ionicons name="chevron-forward" size={20} color="#999" />
     </Pressable>

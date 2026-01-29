@@ -4,7 +4,14 @@ from supabase import Client
 
 from app.db.supabase import get_supabase_client
 from app.models.instructor import ProfileType
-from app.schemas.user import InstructorSignupRequest, InstructorSignupResponse
+from app.schemas.user import (
+    InstructorSignupRequest,
+    InstructorSignupResponse,
+    LoginRequest,
+    LoginResponse,
+    RefreshRequest,
+    RefreshResponse,
+)
 
 
 class AuthServiceError(Exception):
@@ -15,6 +22,18 @@ class AuthServiceError(Exception):
 
 class SignupError(AuthServiceError):
     """Exception raised when signup fails."""
+
+    pass
+
+
+class LoginError(AuthServiceError):
+    """Exception raised when login fails."""
+
+    pass
+
+
+class RefreshError(AuthServiceError):
+    """Exception raised when token refresh fails."""
 
     pass
 
@@ -120,3 +139,87 @@ class AuthService:
             # Log error but don't raise - this is cleanup code
             # In production, you'd want proper logging here
             pass
+
+    async def login(self, request: LoginRequest) -> LoginResponse:
+        """Log in a user with email and password.
+
+        Authenticates via Supabase Auth and fetches the user's profile.
+
+        Args:
+            request: The login request with email and password.
+
+        Returns:
+            LoginResponse with tokens and user profile data.
+
+        Raises:
+            LoginError: If login fails or user has no profile.
+        """
+        try:
+            # Authenticate with Supabase Auth
+            auth_response = self.client.auth.sign_in_with_password(
+                {"email": request.email, "password": request.password}
+            )
+
+            if not auth_response.user or not auth_response.session:
+                raise LoginError("Invalid email or password")
+
+            user_id = UUID(auth_response.user.id)
+
+            # Fetch user profile
+            profile_result = (
+                self.client.table("profiles")
+                .select("first_name, last_name, type")
+                .eq("id", str(user_id))
+                .single()
+                .execute()
+            )
+
+            if not profile_result.data:
+                raise LoginError("User profile not found")
+
+            profile = profile_result.data
+
+            return LoginResponse(
+                access_token=auth_response.session.access_token,
+                refresh_token=auth_response.session.refresh_token,
+                token_type="bearer",
+                user_id=user_id,
+                email=auth_response.user.email or request.email,
+                first_name=profile["first_name"],
+                last_name=profile["last_name"],
+                type=ProfileType(profile["type"]),
+            )
+
+        except LoginError:
+            raise
+        except Exception as e:
+            raise LoginError(f"Login failed: {str(e)}") from e
+
+    async def refresh_token(self, request: RefreshRequest) -> RefreshResponse:
+        """Refresh an access token using a refresh token.
+
+        Args:
+            request: The refresh request with the refresh token.
+
+        Returns:
+            RefreshResponse with new access and refresh tokens.
+
+        Raises:
+            RefreshError: If token refresh fails.
+        """
+        try:
+            auth_response = self.client.auth.refresh_session(request.refresh_token)
+
+            if not auth_response.session:
+                raise RefreshError("Failed to refresh token")
+
+            return RefreshResponse(
+                access_token=auth_response.session.access_token,
+                refresh_token=auth_response.session.refresh_token,
+                token_type="bearer",
+            )
+
+        except RefreshError:
+            raise
+        except Exception as e:
+            raise RefreshError(f"Token refresh failed: {str(e)}") from e

@@ -28,3 +28,37 @@ class InstructorSignupResponse(BaseModel):
     type: ProfileType
     department: str | None
     office_location: str | None
+
+
+class LoginRequest(BaseModel):
+    """Request schema for user login."""
+
+    email: EmailStr
+    password: str
+
+
+class LoginResponse(BaseModel):
+    """Response schema for successful login."""
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user_id: UUID
+    email: str
+    first_name: str
+    last_name: str
+    type: ProfileType
+
+
+class RefreshRequest(BaseModel):
+    """Request schema for token refresh."""
+
+    refresh_token: str
+
+
+class RefreshResponse(BaseModel):
+    """Response schema for successful token refresh."""
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"

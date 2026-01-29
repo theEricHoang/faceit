@@ -19,21 +19,16 @@ This is the backend service for FaceIT.
 
 ## Getting Started
 
-1. Install pyenv [here](https://github.com/pyenv/pyenv?tab=readme-ov-file#b-set-up-your-shell-environment-for-pyenv)
+1. Install [pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#b-set-up-your-shell-environment-for-pyenv) and [pyenv-virtualenv](https://github.com/pyenv/pyenv-virtualenv)
+   ⚠️ NOTE!! do the optional step with pyenv-virtualenv that activates virtual environments automatically
 
 
-2. Create a new Python virtual environment and activate it:
+2. Create a new Python virtual environment version 3.12.2:
 
-   **On macOS/Linux:**
+   **On macOS/Linux/Windows Powershell:**
    ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   ```
-
-   **On Windows (PowerShell):**
-   ```powershell
-   python -m venv .venv
-   .venv\Scripts\Activate.ps1
+   pyenv install 3.12.2
+   pyenv virtualenv 3.12.2 backend
    ```
 
 3. Install dependencies:

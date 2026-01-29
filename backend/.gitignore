@@ -70,7 +70,6 @@ poetry.lock
 
 # Environment variables
 .env
-.env.*
 
 # Python virtual environments
 venv/

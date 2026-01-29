@@ -35,7 +35,10 @@ This is the backend service for FaceIT.
    ```bash
    pip install -r requirements.txt
    ```
-4. Run the development server:
+
+4. Setup environment variables by copying `.env.example` to `.env`
+
+5. Run the development server:
    ```bash
    uvicorn app.main:app --reload
    ```

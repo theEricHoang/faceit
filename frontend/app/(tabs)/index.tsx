@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -12,9 +12,12 @@ import ClassCard from "../../components/ClassCard";
 import { SafeAreaView } from "react-native-safe-area-context";
 import CreateClassModal from "../../components/CreateClassModal";
 
+type UserRole = "instructor" | "student";
+
 export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [role, setRole] = useState<UserRole>("instructor");
 
   const classes = [
     {
@@ -60,6 +63,12 @@ export default function HomeScreen() {
       .includes(searchQuery.toLowerCase())
   );
 
+  useEffect(() => {
+    if (role !== "instructor") {
+      setShowModal(false);
+    }
+  }, [role]);
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       {/* Header */}
@@ -74,9 +83,11 @@ export default function HomeScreen() {
         {/* Class list header */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>My Classes</Text>
-          <Pressable style={styles.addButton} onPress={() => setShowModal(true)}>
-            <Ionicons name="add" size={20} color="#fff" />
-          </Pressable>
+          { role === "instructor" && (
+            <Pressable style={styles.addButton} onPress={() => setShowModal(true)}>
+              <Ionicons name="add" size={20} color="#fff" />
+            </Pressable>
+          )}
         </View>
 
         {/* Search */}
@@ -98,11 +109,16 @@ export default function HomeScreen() {
             courseCode={cls.courseCode}
             section={cls.section}
             schedule={cls.schedule}
-            studentCount={cls.studentCount}
+            {...(role === "instructor" ? { studentCount: cls.studentCount} : { attendanceStatus: "Present" })}
           />
         ))}
       </ScrollView>
-      <CreateClassModal visible={showModal} onClose={() => setShowModal(false)} />
+      {role === "instructor" && (
+        <CreateClassModal
+          visible={showModal}
+          onClose={() => setShowModal(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }

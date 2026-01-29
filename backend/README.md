@@ -43,5 +43,22 @@ This is the backend service for FaceIT.
    uvicorn app.main:app --reload
    ```
 
+## Testing
+
+Run all tests:
+```bash
+pytest tests/ -v
+```
+
+Run specific test file:
+```bash
+pytest tests/services/test_auth_service.py -v
+```
+
+Run with coverage report:
+```bash
+pytest tests/ --cov=app --cov-report=term-missing
+```
+
 ## Notes
 - This is the initial project scaffold.

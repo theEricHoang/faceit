@@ -49,9 +49,6 @@ coverage.xml
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# pyenv
-.python-version
-
 # pipenv
 Pipfile.lock
 
@@ -73,7 +70,6 @@ poetry.lock
 
 # Environment variables
 .env
-.env.*
 
 # Python virtual environments
 venv/

@@ -74,3 +74,16 @@ class RefreshResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+# ============================================================================
+# Auth Context
+# ============================================================================
+
+
+class CurrentUser(BaseModel):
+    """Current authenticated user context from JWT."""
+
+    user_id: UUID
+    email: str
+    type: ProfileType

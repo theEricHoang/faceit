@@ -9,6 +9,7 @@ from app.schemas.user import (
     InstructorSignupResponse,
     LoginRequest,
     LoginResponse,
+    LoginProfileData,
     RefreshRequest,
     RefreshResponse,
 )
@@ -75,6 +76,9 @@ class AuthService:
 
             user_id = UUID(auth_response.user.id)
 
+            if not auth_response.session:
+                raise SignupError("Failed to create auth session")
+
             # Step 2: Insert profile record
             profile_data = {
                 "id": str(user_id),
@@ -103,8 +107,11 @@ class AuthService:
             if not instructor_result.data:
                 raise SignupError("Failed to create instructor record")
 
-            # Return successful response
+            # Return successful response with auth tokens
             return InstructorSignupResponse(
+                access_token=auth_response.session.access_token,
+                refresh_token=auth_response.session.refresh_token,
+                token_type="bearer",
                 user_id=user_id,
                 email=request.email,
                 first_name=request.first_name,
@@ -177,7 +184,7 @@ class AuthService:
             if not profile_result.data:
                 raise LoginError("User profile not found")
 
-            profile = profile_result.data
+            profile = LoginProfileData.model_validate(profile_result.data)
 
             return LoginResponse(
                 access_token=auth_response.session.access_token,
@@ -185,9 +192,9 @@ class AuthService:
                 token_type="bearer",
                 user_id=user_id,
                 email=auth_response.user.email or request.email,
-                first_name=profile["first_name"],
-                last_name=profile["last_name"],
-                type=ProfileType(profile["type"]),
+                first_name=profile.first_name,
+                last_name=profile.last_name,
+                type=profile.type,
             )
 
         except LoginError:

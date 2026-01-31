@@ -27,8 +27,11 @@ class TestSignupInstructorRoute:
     def test_signup_instructor_success(
         self, test_client: TestClient, sample_signup_data: dict
     ):
-        """Test successful signup returns 201 with user data."""
+        """Test successful signup returns 201 with user data and tokens."""
         mock_response = InstructorSignupResponse(
+            access_token="mock-access-token",
+            refresh_token="mock-refresh-token",
+            token_type="bearer",
             user_id=UUID(TEST_USER_ID),
             email=TEST_EMAIL,
             first_name=sample_signup_data["first_name"],
@@ -52,6 +55,11 @@ class TestSignupInstructorRoute:
 
         assert response.status_code == 201
         data = response.json()
+        # Verify auth tokens
+        assert data["access_token"] == "mock-access-token"
+        assert data["refresh_token"] == "mock-refresh-token"
+        assert data["token_type"] == "bearer"
+        # Verify user data
         assert data["user_id"] == TEST_USER_ID
         assert data["email"] == TEST_EMAIL
         assert data["first_name"] == sample_signup_data["first_name"]

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # Supabase configuration
     supabase_url: str
     supabase_service_key: str
+    supabase_jwt_secret: str
 
 
 @lru_cache

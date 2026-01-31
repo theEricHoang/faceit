@@ -1,13 +1,16 @@
 """Shared test fixtures for auth testing."""
 
-from typing import Any
+from typing import Any, Generator
 from unittest.mock import MagicMock
 from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.deps import get_current_user
 from app.main import app
+from app.models.instructor import ProfileType
+from app.schemas.user import CurrentUser
 
 
 # ============================================================================
@@ -160,3 +163,48 @@ def mock_supabase_client() -> MagicMock:
 def test_client() -> TestClient:
     """Create a FastAPI test client."""
     return TestClient(app)
+
+
+# ============================================================================
+# Auth Test Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def mock_instructor_user() -> CurrentUser:
+    """Mock authenticated instructor user."""
+    return CurrentUser(
+        user_id=UUID(TEST_USER_ID),
+        email=TEST_EMAIL,
+        type=ProfileType.INSTRUCTOR,
+    )
+
+
+@pytest.fixture
+def mock_student_user() -> CurrentUser:
+    """Mock authenticated student user."""
+    return CurrentUser(
+        user_id=UUID(TEST_USER_ID),
+        email="test.student@example.com",
+        type=ProfileType.STUDENT,
+    )
+
+
+@pytest.fixture
+def authenticated_client(
+    mock_instructor_user: CurrentUser,
+) -> Generator[TestClient, None, None]:
+    """Create a test client with mocked instructor authentication."""
+    app.dependency_overrides[get_current_user] = lambda: mock_instructor_user
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def student_authenticated_client(
+    mock_student_user: CurrentUser,
+) -> Generator[TestClient, None, None]:
+    """Create a test client with mocked student authentication."""
+    app.dependency_overrides[get_current_user] = lambda: mock_student_user
+    yield TestClient(app)
+    app.dependency_overrides.clear()

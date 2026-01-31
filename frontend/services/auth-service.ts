@@ -1,32 +1,103 @@
 import { apiClient } from '@/services/api-client';
 import { clearAllTokens, setAccessToken, setRefreshToken } from '@/services/secure-storage';
 import { useAuthStore } from '@/stores/auth-store';
-import type { AuthTokens } from '@/types/auth';
-
-interface LoginRequest {
-  email: string;
-  password: string;
-}
+import type {
+    AuthTokens,
+    InstructorSignupRequest,
+    InstructorSignupResponse,
+    LoginRequest,
+    LoginResponse,
+    StudentSignupRequest,
+    StudentSignupResponse,
+} from '@/types/auth';
 
 /**
  * Log in a user with email and password
- * Returns the auth tokens on success
+ * Returns the login response with tokens and user data
  */
-export async function login(credentials: LoginRequest): Promise<AuthTokens> {
-  const tokens = await apiClient.post<AuthTokens>('/auth/login', credentials, {
+export async function login(credentials: LoginRequest): Promise<LoginResponse> {
+  const response = await apiClient.post<LoginResponse>('/auth/login', credentials, {
     skipAuth: true,
   });
 
-  // Store tokens and update auth state
+  // Store tokens
   await Promise.all([
-    setAccessToken(tokens.access_token),
-    setRefreshToken(tokens.refresh_token),
+    setAccessToken(response.access_token),
+    setRefreshToken(response.refresh_token),
   ]);
 
-  useAuthStore.getState().setUser;
-  useAuthStore.setState({ isAuthenticated: true });
+  // Update auth state with user data
+  useAuthStore.getState().setUser({
+    user_id: response.user_id,
+    email: response.email,
+    first_name: response.first_name,
+    last_name: response.last_name,
+    type: response.type,
+  });
 
-  return tokens;
+  return response;
+}
+
+/**
+ * Register a new student account
+ * Returns the signup response with tokens and user data
+ */
+export async function registerStudent(
+  data: StudentSignupRequest
+): Promise<StudentSignupResponse> {
+  const response = await apiClient.post<StudentSignupResponse>(
+    '/auth/signup/student',
+    data,
+    { skipAuth: true }
+  );
+
+  // Store tokens
+  await Promise.all([
+    setAccessToken(response.access_token),
+    setRefreshToken(response.refresh_token),
+  ]);
+
+  // Update auth state with user data
+  useAuthStore.getState().setUser({
+    user_id: response.user_id,
+    email: response.email,
+    first_name: response.first_name,
+    last_name: response.last_name,
+    type: response.type,
+  });
+
+  return response;
+}
+
+/**
+ * Register a new instructor account
+ * Returns the signup response with tokens and user data
+ */
+export async function registerInstructor(
+  data: InstructorSignupRequest
+): Promise<InstructorSignupResponse> {
+  const response = await apiClient.post<InstructorSignupResponse>(
+    '/auth/signup/instructor',
+    data,
+    { skipAuth: true }
+  );
+
+  // Store tokens
+  await Promise.all([
+    setAccessToken(response.access_token),
+    setRefreshToken(response.refresh_token),
+  ]);
+
+  // Update auth state with user data
+  useAuthStore.getState().setUser({
+    user_id: response.user_id,
+    email: response.email,
+    first_name: response.first_name,
+    last_name: response.last_name,
+    type: response.type,
+  });
+
+  return response;
 }
 
 /**

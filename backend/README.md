@@ -40,7 +40,7 @@ This is the backend service for FaceIT.
 
 5. Run the development server:
    ```bash
-   uvicorn app.main:app --reload
+   uvicorn app.main:app --host 0.0.0.0 --reload
    ```
 
 ## Testing

@@ -20,6 +20,12 @@ class InstructorSignupRequest(BaseModel):
 class InstructorSignupResponse(BaseModel):
     """Response schema for successful instructor signup."""
 
+    # Auth tokens
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+    # User data
     user_id: UUID
     email: str
     first_name: str
@@ -49,6 +55,12 @@ class LoginResponse(BaseModel):
     last_name: str
     type: ProfileType
 
+class LoginProfileData(BaseModel):
+    """User profile data returned during login."""
+
+    first_name: str
+    last_name: str
+    type: ProfileType
 
 class RefreshRequest(BaseModel):
     """Request schema for token refresh."""
@@ -62,3 +74,16 @@ class RefreshResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+# ============================================================================
+# Auth Context
+# ============================================================================
+
+
+class CurrentUser(BaseModel):
+    """Current authenticated user context from JWT."""
+
+    user_id: UUID
+    email: str
+    type: ProfileType

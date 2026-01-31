@@ -20,6 +20,12 @@ class InstructorSignupRequest(BaseModel):
 class InstructorSignupResponse(BaseModel):
     """Response schema for successful instructor signup."""
 
+    # Auth tokens
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+    # User data
     user_id: UUID
     email: str
     first_name: str

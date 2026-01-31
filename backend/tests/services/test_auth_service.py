@@ -39,7 +39,7 @@ class TestSignupInstructor:
     async def test_signup_instructor_success(
         self, mock_supabase_client: MagicMock, sample_signup_data: dict
     ):
-        """Test successful instructor signup creates all records."""
+        """Test successful instructor signup creates all records and returns tokens."""
         auth_service = AuthService(client=mock_supabase_client)
         request = InstructorSignupRequest(**sample_signup_data)
 
@@ -49,6 +49,11 @@ class TestSignupInstructor:
         mock_supabase_client.auth.sign_up.assert_called_once_with(
             {"email": TEST_EMAIL, "password": sample_signup_data["password"]}
         )
+
+        # Verify auth tokens are returned
+        assert result.access_token == "mock-access-token"
+        assert result.refresh_token == "mock-refresh-token"
+        assert result.token_type == "bearer"
 
         # Verify response data
         assert result.user_id == UUID(TEST_USER_ID)
@@ -78,6 +83,25 @@ class TestSignupInstructor:
 
         # Verify no cleanup was attempted (no user was created)
         mock_supabase_client.auth.admin.delete_user.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_signup_instructor_no_session_failure(
+        self, mock_supabase_client: MagicMock, sample_signup_data: dict
+    ):
+        """Test signup fails when user is created but session is missing."""
+        # Configure auth to return user but no session (e.g., email confirmation required)
+        mock_supabase_client.auth.sign_up.return_value = MockAuthResponse(
+            user=MockUser(TEST_USER_ID, TEST_EMAIL), session=None
+        )
+
+        auth_service = AuthService(client=mock_supabase_client)
+        request = InstructorSignupRequest(**sample_signup_data)
+
+        with pytest.raises(SignupError, match="Failed to create auth session"):
+            await auth_service.signup_instructor(request)
+
+        # Verify cleanup was attempted since user was created
+        mock_supabase_client.auth.admin.delete_user.assert_called_once_with(TEST_USER_ID)
 
     @pytest.mark.asyncio
     async def test_signup_instructor_profile_failure_triggers_rollback(

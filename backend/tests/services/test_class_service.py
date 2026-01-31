@@ -2,7 +2,7 @@
 
 import pytest
 from uuid import uuid4
-from app.services.class_service import ClassService, CreateClassError
+from app.services.classes.class_service import ClassService, CreateClassError
 
 import types
 

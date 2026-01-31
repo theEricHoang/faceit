@@ -6,6 +6,7 @@ from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from jose import jwt
 
 from app.api.deps import get_current_user, require_instructor, require_student
@@ -21,6 +22,8 @@ TEST_JWT_SECRET = "test-jwt-secret-for-unit-tests"
 @pytest.fixture(autouse=True)
 def setup_test_env(monkeypatch):
     """Set test environment variables and clear settings cache."""
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", TEST_JWT_SECRET)
     # Clear the cached settings so it picks up new env var
     get_settings.cache_clear()
@@ -58,11 +61,11 @@ def create_test_token(
     return jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
 
 
-class MockCredentials:
+class MockCredentials(HTTPAuthorizationCredentials):
     """Mock HTTPAuthorizationCredentials."""
 
     def __init__(self, token: str):
-        self.credentials = token
+        super().__init__(scheme="Bearer", credentials=token)
 
 
 # ============================================================================

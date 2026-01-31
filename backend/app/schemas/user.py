@@ -49,6 +49,12 @@ class LoginResponse(BaseModel):
     last_name: str
     type: ProfileType
 
+class LoginProfileData(BaseModel):
+    """User profile data returned during login."""
+
+    first_name: str
+    last_name: str
+    type: ProfileType
 
 class RefreshRequest(BaseModel):
     """Request schema for token refresh."""

@@ -66,9 +66,17 @@ class AuthService:
         user_id: UUID | None = None
 
         try:
-            # Step 1: Create auth user via Supabase Auth
+            # Step 1: Create auth user via Supabase Auth with user_metadata
             auth_response = self.client.auth.sign_up(
-                {"email": request.email, "password": request.password}
+                {
+                    "email": request.email,
+                    "password": request.password,
+                    "options": {
+                        "data": {
+                            "type": ProfileType.INSTRUCTOR.value,
+                        }
+                    }
+                }
             )
 
             if not auth_response.user:

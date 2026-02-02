@@ -1,12 +1,15 @@
 
-from fastapi import APIRouter, Header, HTTPException
-from uuid import uuid4, UUID
+from fastapi import APIRouter, Depends, Header, HTTPException
+from uuid import UUID
 from app.schemas.course import CreateClassRequest, CreateClassResponse, ListClassesResponse, ClassListItem
-from app.services.classes.class_query_service import ClassService
-import asyncio
+from app.schemas.user import CurrentUser
+from app.services.classes.class_query_service import ClassService as ClassQueryService
+from app.services.classes.class_service import ClassService, CreateClassError
+from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/classes", tags=["classes"])
-service = ClassService()
+query_service = ClassQueryService()
+class_service = ClassService()
 
 @router.get("", response_model=ListClassesResponse)
 async def list_classes(
@@ -17,7 +20,7 @@ async def list_classes(
     try:
         user_id = UUID(x_user_id)
         user_type = x_user_type.lower()
-        classes = service.get_classes_for_user(user_id, user_type)
+        classes = query_service.get_classes_for_user(user_id, user_type)
         return ListClassesResponse(
             classes=[
                 ClassListItem(
@@ -36,12 +39,30 @@ async def list_classes(
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("", response_model=CreateClassResponse)
-def create_class(payload: CreateClassRequest):
-    # TODO: connect to supabase
-    return CreateClassResponse(
-        class_id=uuid4(),
-        course_code=payload.course_code,
-        course_name=payload.course_name,
-        section=payload.section,
-        term=payload.term
-    )
+async def create_class(
+    payload: CreateClassRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Create a new class. Only instructors can create classes."""
+    if current_user.type != "instructor":
+        raise HTTPException(status_code=403, detail="Only instructors can create classes")
+    
+    try:
+        result = await class_service.create_class(
+            instructor_id=current_user.user_id,
+            course_code=payload.course_code,
+            course_name=payload.course_name,
+            section=payload.section,
+            term=payload.term,
+            schedule=payload.schedule,
+            room=payload.room,
+        )
+        return CreateClassResponse(
+            class_id=UUID(result["id"]),
+            course_code=result["course_code"],
+            course_name=result["course_name"],
+            section=result["section"],
+            term=result["term"],
+        )
+    except CreateClassError as e:
+        raise HTTPException(status_code=500, detail=str(e))

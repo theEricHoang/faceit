@@ -8,16 +8,21 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
+import { createClass } from "@/services/classes-service";
 
 interface CreateClassModalProps {
   visible: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
 export default function CreateClassModal({
   visible,
   onClose,
+  onSuccess,
 }: CreateClassModalProps) {
   const [courseCode, setCourseCode] = useState("");
   const [courseName, setCourseName] = useState("");
@@ -25,6 +30,7 @@ export default function CreateClassModal({
   const [term, setTerm] = useState("");
   const [schedule, setSchedule] = useState("");
   const [room, setRoom] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -37,9 +43,30 @@ export default function CreateClassModal({
     }
   }, [visible]);
 
-  const handleSubmit = () => {
-    // TODO: call backend
-    onClose();
+  const handleSubmit = async () => {
+    // Validate required fields
+    if (!courseCode.trim() || !courseName.trim() || !section.trim() || !term.trim() || !schedule.trim()) {
+      Alert.alert("Error", "Please fill in all required fields");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await createClass({
+        course_code: courseCode.trim(),
+        course_name: courseName.trim(),
+        section: section.trim(),
+        term: term.trim(),
+        schedule: schedule.trim(),
+        room: room.trim() || null,
+      });
+      onSuccess?.();
+    } catch (error) {
+      console.error("Failed to create class:", error);
+      Alert.alert("Error", "Failed to create class. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -88,11 +115,23 @@ export default function CreateClassModal({
               onChangeText={setRoom}
             />
             <View style={styles.actions}>
-              <Pressable style={styles.cancelButton} onPress={onClose}>
+              <Pressable 
+                style={[styles.cancelButton, isSubmitting && styles.disabledButton]} 
+                onPress={onClose}
+                disabled={isSubmitting}
+              >
                 <Text style={styles.cancelText}>Cancel</Text>
               </Pressable>
-              <Pressable style={styles.primaryButton} onPress={handleSubmit}>
-                <Text style={styles.primaryText}>Create Class</Text>
+              <Pressable 
+                style={[styles.primaryButton, isSubmitting && styles.disabledButton]} 
+                onPress={handleSubmit}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.primaryText}>Create Class</Text>
+                )}
               </Pressable>
             </View>
           </View>
@@ -174,5 +213,8 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
 });

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,68 +6,71 @@ import {
   TextInput,
   Pressable,
   StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import ClassCard from "../../components/ClassCard";
 import { SafeAreaView } from "react-native-safe-area-context";
 import CreateClassModal from "../../components/CreateClassModal";
-
-type UserRole = "instructor" | "student";
+import { useAuthStore } from "@/stores/auth-store";
+import { getClasses, ClassItem } from "@/services/classes-service";
 
 export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showModal, setShowModal] = useState(false);
-  const [role, setRole] = useState<UserRole>("instructor");
+  const [classes, setClasses] = useState<ClassItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const classes = [
-    {
-      id: 1,
-      courseCode: "CS101",
-      section: "A",
-      schedule: "M-W 10:00AM - 11:15AM",
-      studentCount: 35,
-    },
-    {
-      id: 2,
-      courseCode: "CS102",
-      section: "B",
-      schedule: "T-Th 2:00PM - 3:15PM",
-      studentCount: 42,
-    },
-    {
-      id: 3,
-      courseCode: "CS201",
-      section: "A",
-      schedule: "M-W-F 9:00AM - 9:50AM",
-      studentCount: 28,
-    },
-    {
-      id: 4,
-      courseCode: "CS301",
-      section: "C",
-      schedule: "T-Th 11:00AM - 12:15PM",
-      studentCount: 31,
-    },
-    {
-      id: 5,
-      courseCode: "CS150",
-      section: "A",
-      schedule: "M-W 1:00PM - 2:15PM",
-      studentCount: 38,
-    },
-  ];
+  const user = useAuthStore((state) => state.user);
+  const role = user?.type ?? "student";
+
+  const fetchClasses = useCallback(async () => {
+    try {
+      setError(null);
+      const response = await getClasses();
+      setClasses(response.classes);
+    } catch (err) {
+      console.error("Failed to fetch classes:", err);
+      setError("Failed to load classes");
+    }
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    const loadClasses = async () => {
+      setIsLoading(true);
+      await fetchClasses();
+      setIsLoading(false);
+    };
+    loadClasses();
+  }, [fetchClasses]);
+
+  // Pull to refresh
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await fetchClasses();
+    setIsRefreshing(false);
+  }, [fetchClasses]);
+
+  // Called when a class is created successfully
+  const handleClassCreated = useCallback(() => {
+    setShowModal(false);
+    fetchClasses();
+  }, [fetchClasses]);
 
   const filteredClasses = classes.filter((cls) =>
-    `${cls.courseCode} ${cls.section}`
+    `${cls.course_code} ${cls.course_name} ${cls.section}`
       .toLowerCase()
       .includes(searchQuery.toLowerCase())
   );
 
-  useEffect(() => {
-    if (role !== "instructor") {
-      setShowModal(false);
-    }
-  }, [role]);
+  // Get user initials for avatar
+  const userInitials = user
+    ? `${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase()
+    : "??";
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -75,11 +78,16 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>FaceIT</Text>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>WJ</Text>
+          <Text style={styles.avatarText}>{userInitials}</Text>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />
+        }
+      >
         {/* Class list header */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>My Classes</Text>
@@ -102,21 +110,55 @@ export default function HomeScreen() {
           />
         </View>
 
+        {/* Loading state */}
+        {isLoading && (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color="#000" />
+          </View>
+        )}
+
+        {/* Error state */}
+        {error && !isLoading && (
+          <View style={styles.centerContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+            <Pressable style={styles.retryButton} onPress={fetchClasses}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* Empty state */}
+        {!isLoading && !error && filteredClasses.length === 0 && (
+          <View style={styles.centerContainer}>
+            <Text style={styles.emptyText}>
+              {searchQuery
+                ? "No classes match your search"
+                : role === "instructor"
+                ? "You haven't created any classes yet"
+                : "You're not enrolled in any classes yet"}
+            </Text>
+          </View>
+        )}
+
         {/* Class list */}
-        {filteredClasses.map((cls) => (
-          <ClassCard
-            key={cls.id}
-            courseCode={cls.courseCode}
-            section={cls.section}
-            schedule={cls.schedule}
-            {...(role === "instructor" ? { studentCount: cls.studentCount} : { attendanceStatus: "Present" })}
-          />
-        ))}
+        {!isLoading &&
+          !error &&
+          filteredClasses.map((cls) => (
+            <ClassCard
+              key={cls.class_id}
+              courseCode={cls.course_code}
+              courseName={cls.course_name}
+              section={cls.section}
+              schedule={cls.schedule}
+              room={cls.room}
+            />
+          ))}
       </ScrollView>
       {role === "instructor" && (
         <CreateClassModal
           visible={showModal}
           onClose={() => setShowModal(false)}
+          onSuccess={handleClassCreated}
         />
       )}
     </SafeAreaView>
@@ -159,6 +201,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
+    flexGrow: 1,
   },
   sectionHeader: {
     flexDirection: "row",
@@ -191,5 +234,31 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 8,
     fontSize: 16,
+  },
+  centerContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  errorText: {
+    color: "#e53935",
+    fontSize: 16,
+    marginBottom: 12,
+  },
+  retryButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: "#000",
+    borderRadius: 8,
+  },
+  retryText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  emptyText: {
+    color: "#888",
+    fontSize: 16,
+    textAlign: "center",
   },
 });

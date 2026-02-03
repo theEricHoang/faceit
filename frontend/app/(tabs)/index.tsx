@@ -8,17 +8,22 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import ClassCard from "../../components/ClassCard";
 import { SafeAreaView } from "react-native-safe-area-context";
 import CreateClassModal from "../../components/CreateClassModal";
 import { useAuthStore } from "@/stores/auth-store";
 import { getClasses, ClassItem } from "@/services/classes-service";
+import { logout } from "@/services/auth-service";
 
 export default function HomeScreen() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -72,15 +77,56 @@ export default function HomeScreen() {
     ? `${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase()
     : "??";
 
+  const handleLogout = async () => {
+    setShowProfileMenu(false);
+    await logout();
+    router.replace("/(auth)/login");
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>FaceIT</Text>
-        <View style={styles.avatar}>
+        <Pressable style={styles.avatar} onPress={() => setShowProfileMenu(true)}>
           <Text style={styles.avatarText}>{userInitials}</Text>
-        </View>
+        </Pressable>
       </View>
+
+      {/* Profile Menu Modal */}
+      <Modal
+        visible={showProfileMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowProfileMenu(false)}
+      >
+        <Pressable 
+          style={styles.menuOverlay} 
+          onPress={() => setShowProfileMenu(false)}
+        >
+          <View style={styles.menuContainer}>
+            <View style={styles.menuHeader}>
+              <View style={styles.menuAvatar}>
+                <Text style={styles.menuAvatarText}>{userInitials}</Text>
+              </View>
+              <View style={styles.menuUserInfo}>
+                <Text style={styles.menuUserName}>
+                  {user?.first_name} {user?.last_name}
+                </Text>
+                <Text style={styles.menuUserEmail}>{user?.email}</Text>
+                <Text style={styles.menuUserType}>
+                  {role === "instructor" ? "Instructor" : "Student"}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.menuDivider} />
+            <Pressable style={styles.menuItem} onPress={handleLogout}>
+              <Ionicons name="log-out-outline" size={20} color="#e53935" />
+              <Text style={styles.menuItemTextDanger}>Log Out</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -260,5 +306,76 @@ const styles = StyleSheet.create({
     color: "#888",
     fontSize: 16,
     textAlign: "center",
+  },
+  // Profile Menu styles
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-start",
+    alignItems: "flex-end",
+    paddingTop: 100,
+    paddingRight: 16,
+  },
+  menuContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    width: 250,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  menuHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+  },
+  menuAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuAvatarText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 18,
+  },
+  menuUserInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  menuUserName: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  menuUserEmail: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+  },
+  menuUserType: {
+    fontSize: 12,
+    color: "#888",
+    marginTop: 2,
+    textTransform: "capitalize",
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: "#eee",
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+  },
+  menuItemTextDanger: {
+    marginLeft: 12,
+    fontSize: 16,
+    color: "#e53935",
+    fontWeight: "500",
   },
 });

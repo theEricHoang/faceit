@@ -8,12 +8,16 @@ from app.services.classes.class_service import ClassService, CreateClassError
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/classes", tags=["classes"])
-query_service = ClassQueryService()
-class_service = ClassService()
+def get_query_service():
+    return ClassQueryService()
+
+def get_class_service():
+    return ClassService()
 
 @router.get("", response_model=ListClassesResponse)
 async def list_classes(
     current_user: CurrentUser = Depends(get_current_user),
+    query_service: ClassQueryService = Depends(get_query_service),
 ):
     """List classes for the current user (instructor or student)."""
     try:
@@ -39,6 +43,7 @@ async def list_classes(
 async def create_class(
     payload: CreateClassRequest,
     current_user: CurrentUser = Depends(get_current_user),
+    class_service: ClassService = Depends(get_class_service),
 ):
     """Create a new class. Only instructors can create classes."""
     if current_user.type != "instructor":

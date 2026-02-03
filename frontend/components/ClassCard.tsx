@@ -29,7 +29,7 @@ export default function ClassCard({
     <Pressable style={styles.card} onPress={onPress}>
       <View style={styles.content}>
         <Text style={styles.title}>
-          {courseCode} – Section {section}
+          {courseCode} - Section {section}
         </Text>
         {courseName && <Text style={styles.courseName}>{courseName}</Text>}
         <Text style={styles.subtitle}>{schedule}</Text>

@@ -4,7 +4,8 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWKClient, PyJWTError
 
 from app.core.config import get_settings
 from app.models.instructor import ProfileType
@@ -12,6 +13,17 @@ from app.schemas.user import CurrentUser
 
 security = HTTPBearer()
 
+# Cache the JWKS client
+_jwks_client = None
+
+def get_jwks_client():
+    """Get cached JWKS client for Supabase."""
+    global _jwks_client
+    if _jwks_client is None:
+        settings = get_settings()
+        jwks_url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
+        _jwks_client = PyJWKClient(jwks_url)
+    return _jwks_client
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -29,13 +41,15 @@ async def get_current_user(
     Raises:
         HTTPException: 401 if token is invalid, expired, or malformed.
     """
-    settings = get_settings()
-
     try:
+        # Get the signing key from JWKS
+        jwks_client = get_jwks_client()
+        signing_key = jwks_client.get_signing_key_from_jwt(credentials.credentials)
+        
         payload = jwt.decode(
             credentials.credentials,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
+            signing_key.key,
+            algorithms=["ES256"],
             audience="authenticated",
         )
 
@@ -59,7 +73,8 @@ async def get_current_user(
             type=profile_type,
         )
 
-    except JWTError:
+    except PyJWTError as e:
+        print(f"DEBUG: JWTError occurred: {type(e).__name__}: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",

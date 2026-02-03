@@ -1,34 +1,56 @@
 """Unit tests for auth dependencies."""
 
-import os
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
-from jose import jwt
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.backends import default_backend
+import jwt as pyjwt
 
 from app.api.deps import get_current_user, require_instructor, require_student
 from app.core.config import get_settings
 from app.models.instructor import ProfileType
 from app.schemas.user import CurrentUser
 from tests.conftest import TEST_EMAIL, TEST_USER_ID
+import app.api.deps as deps_module
 
-# Test JWT secret - set in environment for tests
-TEST_JWT_SECRET = "test-jwt-secret-for-unit-tests"
+# Generate a test ES256 key pair for testing
+_test_private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
+_test_public_key = _test_private_key.public_key()
 
 
 @pytest.fixture(autouse=True)
 def setup_test_env(monkeypatch):
-    """Set test environment variables and clear settings cache."""
+    """Set test environment variables, clear caches, and mock JWKS client."""
     monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-service-key")
-    monkeypatch.setenv("SUPABASE_JWT_SECRET", TEST_JWT_SECRET)
-    # Clear the cached settings so it picks up new env var
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-jwt-secret-for-unit-tests")
+    
+    # Clear the cached settings and JWKS client
     get_settings.cache_clear()
+    deps_module._jwks_client = None
+    
     yield
+    
     get_settings.cache_clear()
+    deps_module._jwks_client = None
+
+
+@pytest.fixture
+def mock_jwks_client():
+    """Mock the JWKS client to return our test public key."""
+    mock_signing_key = MagicMock()
+    mock_signing_key.key = _test_public_key
+    
+    mock_client = MagicMock()
+    mock_client.get_signing_key_from_jwt.return_value = mock_signing_key
+    
+    with patch("app.api.deps.get_jwks_client", return_value=mock_client):
+        yield mock_client
 
 
 # ============================================================================
@@ -42,7 +64,7 @@ def create_test_token(
     user_type: str | None = "instructor",
     expired: bool = False,
 ) -> str:
-    """Create a test JWT token."""
+    """Create a test JWT token signed with ES256."""
     exp = datetime.now(timezone.utc) + (
         timedelta(hours=-1) if expired else timedelta(hours=1)
     )
@@ -58,7 +80,7 @@ def create_test_token(
     if user_type:
         payload["user_metadata"] = {"type": user_type}
 
-    return jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
+    return pyjwt.encode(payload, _test_private_key, algorithm="ES256")
 
 
 class MockCredentials(HTTPAuthorizationCredentials):
@@ -77,7 +99,7 @@ class TestGetCurrentUser:
     """Tests for get_current_user dependency."""
 
     @pytest.mark.asyncio
-    async def test_valid_instructor_token(self):
+    async def test_valid_instructor_token(self, mock_jwks_client):
         """Test valid token returns CurrentUser with instructor type."""
         token = create_test_token(user_type="instructor")
         credentials = MockCredentials(token)
@@ -89,7 +111,7 @@ class TestGetCurrentUser:
         assert user.type == ProfileType.INSTRUCTOR
 
     @pytest.mark.asyncio
-    async def test_valid_student_token(self):
+    async def test_valid_student_token(self, mock_jwks_client):
         """Test valid token returns CurrentUser with student type."""
         token = create_test_token(user_type="student")
         credentials = MockCredentials(token)
@@ -101,7 +123,7 @@ class TestGetCurrentUser:
         assert user.type == ProfileType.STUDENT
 
     @pytest.mark.asyncio
-    async def test_missing_user_type_defaults_to_student(self):
+    async def test_missing_user_type_defaults_to_student(self, mock_jwks_client):
         """Test token without user_type defaults to student."""
         token = create_test_token(user_type=None)
         credentials = MockCredentials(token)
@@ -111,7 +133,7 @@ class TestGetCurrentUser:
         assert user.type == ProfileType.STUDENT
 
     @pytest.mark.asyncio
-    async def test_expired_token_returns_401(self):
+    async def test_expired_token_returns_401(self, mock_jwks_client):
         """Test expired token raises 401."""
         token = create_test_token(expired=True)
         credentials = MockCredentials(token)
@@ -134,15 +156,19 @@ class TestGetCurrentUser:
         assert exc_info.value.detail == "Invalid authentication credentials"
 
     @pytest.mark.asyncio
-    async def test_wrong_secret_returns_401(self):
-        """Test token signed with wrong secret raises 401."""
+    async def test_wrong_secret_returns_401(self, mock_jwks_client):
+        """Test token signed with wrong key raises 401."""
+        # Generate a different key pair
+        wrong_private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
+        
         payload = {
             "sub": TEST_USER_ID,
             "email": TEST_EMAIL,
             "aud": "authenticated",
             "exp": datetime.now(timezone.utc) + timedelta(hours=1),
         }
-        token = jwt.encode(payload, "wrong-secret", algorithm="HS256")
+        # Sign with the wrong key
+        token = pyjwt.encode(payload, wrong_private_key, algorithm="ES256")
         credentials = MockCredentials(token)
 
         with pytest.raises(HTTPException) as exc_info:

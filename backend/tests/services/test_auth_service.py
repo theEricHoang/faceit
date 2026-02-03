@@ -45,9 +45,17 @@ class TestSignupInstructor:
 
         result = await auth_service.signup_instructor(request)
 
-        # Verify auth user was created
+        # Verify auth user was created with user_metadata
         mock_supabase_client.auth.sign_up.assert_called_once_with(
-            {"email": TEST_EMAIL, "password": sample_signup_data["password"]}
+            {
+                "email": TEST_EMAIL,
+                "password": sample_signup_data["password"],
+                "options": {
+                    "data": {
+                        "type": "instructor",
+                    }
+                }
+            }
         )
 
         # Verify auth tokens are returned

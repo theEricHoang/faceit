@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
 from app.schemas.course import CreateClassRequest, CreateClassResponse, ListClassesResponse, ClassListItem
 from app.schemas.user import CurrentUser
@@ -13,14 +13,11 @@ class_service = ClassService()
 
 @router.get("", response_model=ListClassesResponse)
 async def list_classes(
-    x_user_id: str = Header(..., description="Mock user id header"),
-    x_user_type: str = Header(..., description="Mock user type header (instructor or student)"),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     """List classes for the current user (instructor or student)."""
     try:
-        user_id = UUID(x_user_id)
-        user_type = x_user_type.lower()
-        classes = query_service.get_classes_for_user(user_id, user_type)
+        classes = query_service.get_classes_for_user(current_user.user_id, current_user.type.value)
         return ListClassesResponse(
             classes=[
                 ClassListItem(

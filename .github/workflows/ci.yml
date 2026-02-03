@@ -27,4 +27,7 @@ jobs:
       - name: Run tests
         env:
             PYTHONPATH: ${{ github.workspace }}/backend
+            SUPABASE_URL: "https://test.supabase.co"
+            SUPABASE_SERVICE_KEY: "test-service-key"
+            SUPABASE_JWT_SECRET: "test-jwt-secret-at-least-32-characters-long"
         run: pytest tests/ -v

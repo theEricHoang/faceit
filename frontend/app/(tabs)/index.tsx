@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -59,6 +60,13 @@ export default function HomeScreen() {
     await fetchClasses();
     setIsRefreshing(false);
   }, [fetchClasses]);
+
+  // Refresh when screen regains focus (e.g., after joining a class)
+  useFocusEffect(
+    useCallback(() => {
+      fetchClasses();
+    }, [fetchClasses])
+  );
 
   // Called when a class is created successfully
   const handleClassCreated = useCallback(() => {
@@ -137,9 +145,16 @@ export default function HomeScreen() {
         {/* Class list header */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>My Classes</Text>
-          { role === "instructor" && (
+          {role === "instructor" ? (
             <Pressable style={styles.addButton} onPress={() => setShowModal(true)}>
               <Ionicons name="add" size={20} color="#fff" />
+            </Pressable>
+          ) : (
+            <Pressable
+              style={styles.sectionActionButton}
+              onPress={() => router.push("/find-class")}
+            >
+              <Text style={styles.sectionActionText}>+ Find Class</Text>
             </Pressable>
           )}
         </View>
@@ -155,6 +170,8 @@ export default function HomeScreen() {
             placeholderTextColor={"#888"}
           />
         </View>
+
+        {/* Find Class button moved to header */}
 
         {/* Loading state */}
         {isLoading && (
@@ -299,6 +316,30 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   retryText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  primaryButton: {
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: "#000",
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  primaryButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  sectionActionButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "#000",
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sectionActionText: {
     color: "#fff",
     fontWeight: "600",
   },

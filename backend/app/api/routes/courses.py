@@ -1,10 +1,11 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
-from app.schemas.course import CreateClassRequest, CreateClassResponse, ListClassesResponse, ClassListItem
+from app.schemas.course import CreateClassRequest, CreateClassResponse, ListClassesResponse, ClassListItem, JoinClassRequest, JoinClassResponse
 from app.schemas.user import CurrentUser
 from app.services.classes.class_query_service import ClassService as ClassQueryService
 from app.services.classes.class_service import ClassService, CreateClassError
+from app.services.enrollment_service import EnrollmentService, EnrollmentServiceError
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/classes", tags=["classes"])
@@ -13,6 +14,9 @@ def get_query_service():
 
 def get_class_service():
     return ClassService()
+
+def get_enrollment_service():
+    return EnrollmentService()
 
 @router.get("", response_model=ListClassesResponse)
 async def list_classes(
@@ -68,3 +72,23 @@ async def create_class(
         )
     except CreateClassError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/join", response_model=JoinClassResponse)
+async def join_class_by_code(
+    payload: JoinClassRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    enroll_service: EnrollmentService = Depends(get_enrollment_service),
+):
+    """Join a class by course_code. Students only."""
+    if current_user.type != "student":
+        raise HTTPException(status_code=403, detail="Only students can join classes")
+    try:
+        result = enroll_service.join_by_course_code(current_user.user_id, payload.course_code)
+        return JoinClassResponse(
+            class_id=UUID(str(result["class_id"])),
+            student_id=current_user.user_id,
+            course_name=result.get("course_name"),
+            section=result.get("section"),
+        )
+    except EnrollmentServiceError as e:
+        raise HTTPException(status_code=400, detail=str(e))

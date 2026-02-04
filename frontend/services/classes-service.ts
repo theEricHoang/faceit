@@ -32,6 +32,17 @@ export interface CreateClassResponse {
   term: string;
 }
 
+export interface JoinClassRequest {
+  course_code: string;
+}
+
+export interface JoinClassResponse {
+  class_id: string;
+  student_id: string;
+  course_name: string;
+  section: string;
+}
+
 /**
  * Get all classes for the current authenticated user
  * Returns instructor's classes or student's enrolled classes based on user type
@@ -45,4 +56,11 @@ export async function getClasses(): Promise<ListClassesResponse> {
  */
 export async function createClass(data: CreateClassRequest): Promise<CreateClassResponse> {
   return apiClient.post<CreateClassResponse>('/classes', data);
+}
+
+/**
+ * Join a class by course code (student only)
+ */
+export async function joinClassByCode(data: JoinClassRequest): Promise<JoinClassResponse> {
+  return apiClient.post<JoinClassResponse>('/classes/join', data);
 }

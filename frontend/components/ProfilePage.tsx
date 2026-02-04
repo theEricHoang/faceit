@@ -198,7 +198,7 @@ export function ProfilePage({
           {resolvedRole === 'student' && (
             <View style={styles.card}>
               <Text style={styles.labelText}>Student ID</Text>
-              <Text style={styles.valueText}>{profile?.student_id ?? 'N/A'}</Text>
+              <Text style={styles.valueText}>{profile?.student_number ?? 'N/A'}</Text>
             </View>
           )}
 

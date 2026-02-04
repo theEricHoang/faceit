@@ -27,7 +27,7 @@ async def get_my_profile(
 			first_name=profile["first_name"],
 			last_name=profile["last_name"],
 			full_name=full_name,
-			student_id=student_number,
+			student_number=student_number,
 		)
 	except UserProfileServiceError as e:
 		raise HTTPException(status_code=404, detail=str(e))

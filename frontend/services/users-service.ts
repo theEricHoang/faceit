@@ -9,7 +9,7 @@ export interface UserProfileResponse {
   first_name: string;
   last_name: string;
   full_name: string;
-  student_id?: string | null;
+  student_number?: string | null;
 }
 
 export const usersService = {

@@ -72,7 +72,7 @@ class UserProfileResponse(BaseModel):
     first_name: str
     last_name: str
     full_name: str
-    student_id: str | None = None
+    student_number: str | None = None
 
 
 class ChangePasswordRequest(BaseModel):

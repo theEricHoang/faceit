@@ -37,3 +37,16 @@ class JoinClassResponse(BaseModel):
     student_id: UUID
     course_name: str
     section: str
+
+class ClassDetailResponse(BaseModel):
+    class_id: UUID
+    course_code: str
+    course_name: str
+    section: str
+    schedule: str
+    room: Optional[str]
+    instructor_name: str
+
+class WithdrawClassResponse(BaseModel):
+    class_id: UUID
+    student_id: UUID

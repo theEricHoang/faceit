@@ -214,6 +214,7 @@ export default function HomeScreen() {
               section={cls.section}
               schedule={cls.schedule}
               room={cls.room}
+              onPress={() => router.push(`/class/${cls.class_id}`)}
             />
           ))}
       </ScrollView>

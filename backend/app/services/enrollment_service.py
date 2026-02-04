@@ -95,3 +95,40 @@ class EnrollmentService:
             raise
         except Exception as e:
             raise EnrollmentServiceError(f"Enrollment failed: {e}")
+
+    def withdraw_from_class(self, student_user_id: UUID, class_id: UUID) -> dict:
+        """
+        Withdraw the current student from a class: delete row from student_classes.
+        Returns {class_id, student_id} on success.
+        """
+        try:
+            # Ensure enrollment exists
+            existing = (
+                self.client
+                .table("student_classes")
+                .select("id, class_id, student_id")
+                .eq("class_id", str(class_id))
+                .eq("student_id", str(student_user_id))
+                .limit(1)
+                .execute()
+            )
+            if not existing.data:
+                raise EnrollmentServiceError("Not enrolled in this class")
+
+            # Perform deletion
+            _ = (
+                self.client
+                .table("student_classes")
+                .delete()
+                .eq("class_id", str(class_id))
+                .eq("student_id", str(student_user_id))
+                .execute()
+            )
+            return {
+                "class_id": str(class_id),
+                "student_id": str(student_user_id),
+            }
+        except EnrollmentServiceError:
+            raise
+        except Exception as e:
+            raise EnrollmentServiceError(f"Withdraw failed: {e}")

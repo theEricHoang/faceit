@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { getClasses, joinClassByCode, type ClassItem } from '@/services/classes-service';
+import { getOpenClasses, joinClassByCode, type ClassItem } from '@/services/classes-service';
 import { useRouter } from 'expo-router';
 
 type OpenClass = {
@@ -31,11 +31,11 @@ export default function FindClassScreen() {
     let mounted = true;
     (async () => {
       try {
-        const res = await getClasses();
+        const res = await getOpenClasses();
         if (mounted) setOpenClasses(res.classes || []);
       } catch (err: any) {
         // Non-blocking: keep UI usable even if fetch fails
-        console.warn('Failed to fetch classes', err?.message || err);
+        console.warn('Failed to fetch open classes', err?.message || err);
       }
     })();
     return () => {
@@ -149,15 +149,15 @@ export default function FindClassScreen() {
                         <Text style={[styles.labelText, { borderWidth: 1, borderColor: '#eee', borderRadius: 8, paddingHorizontal: 8 }]}> {cls.section} </Text>
                       </View>
                       <Text style={[styles.labelText, { marginTop: 4 }]}>{cls.course_name}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 }}>
+                      <View style={{ marginTop: 6 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <Ionicons name="calendar-outline" size={16} color="#888" />
                           <Text style={styles.labelText}>{cls.schedule}</Text>
                         </View>
                         {!!cls.room && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 4 }}>
                             <Ionicons name="home-outline" size={16} color="#888" />
-                            <Text style={styles.labelText}>{cls.room}</Text>
+                            <Text style={[styles.labelText, { flex: 1 }]}>{cls.room}</Text>
                           </View>
                         )}
                       </View>

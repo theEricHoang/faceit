@@ -83,6 +83,9 @@ class StudentSignupRequest(BaseModel):
     password: str = Field(..., min_length=8)
     first_name: str = Field(..., min_length=1, max_length=100)
     last_name: str = Field(..., min_length=1, max_length=100)
+    number: str = Field(..., min_length=1, max_length=50)
+    major: str | None = Field(default=None, max_length=100)
+    bio: str | None = Field(default=None, max_length=500)
 
 
 class StudentSignupResponse(BaseModel):
@@ -98,6 +101,9 @@ class StudentSignupResponse(BaseModel):
     email: str
     first_name: str
     last_name: str
+    number: str
+    major: str | None
+    bio: str | None
     type: ProfileType
 
 

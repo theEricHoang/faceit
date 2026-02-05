@@ -79,3 +79,10 @@ class ClassReadRepository:
 			raise
 		except Exception as e:
 			raise ClassReadError(f"Failed to fetch class details: {e}")
+		
+	def get_students_by_class(self, class_id: UUID) -> List[dict]:
+		try:
+			result = self.client.table("student_classes").select("users(id, first_name, last_name, email)").eq("class_id", str(class_id)).execute()
+			return [row["users"] for row in (result.data or [])]
+		except Exception as e:
+			raise ClassReadError(f"Failed to fetch students for class: {e}")

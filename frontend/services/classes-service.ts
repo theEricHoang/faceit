@@ -32,6 +32,18 @@ export interface CreateClassResponse {
   term: string;
 }
 
+export interface StudentEnrollmentItem {
+  user_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+}
+
+export interface ClassEnrolledStudentsResponse {
+  class_id: string;
+  students: StudentEnrollmentItem[];
+}
+
 /**
  * Get all classes for the current authenticated user
  * Returns instructor's classes or student's enrolled classes based on user type
@@ -45,4 +57,11 @@ export async function getClasses(): Promise<ListClassesResponse> {
  */
 export async function createClass(data: CreateClassRequest): Promise<CreateClassResponse> {
   return apiClient.post<CreateClassResponse>('/classes', data);
+}
+
+/**
+ * Get all students enrolled in a class (instructor only)
+ */
+export async function getClassStudents(classId: string): Promise<ClassEnrolledStudentsResponse> {
+  return apiClient.get<ClassEnrolledStudentsResponse>(`/classes/${classId}/students`);
 }

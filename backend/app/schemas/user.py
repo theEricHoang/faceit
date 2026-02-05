@@ -73,6 +73,8 @@ class UserProfileResponse(BaseModel):
     last_name: str
     full_name: str
     student_number: str | None = None
+    bio: str | None = None
+    major: str | None = None
 
 
 class ChangePasswordRequest(BaseModel):

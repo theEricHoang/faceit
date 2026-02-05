@@ -16,12 +16,12 @@ class UserProfileService:
         self.client = client or get_supabase_client()
 
     def get_profile_names_and_type(self, user_id: UUID) -> dict:
-        """Fetch first_name, last_name, and type from profiles table."""
+        """Fetch first_name, last_name, type, and bio from profiles table."""
         try:
             result = (
                 self.client
                 .table("profiles")
-                .select("first_name, last_name, type")
+                .select("first_name, last_name, type, bio")
                 .eq("id", str(user_id))
                 .single()
                 .execute()
@@ -45,6 +45,24 @@ class UserProfileService:
             )
             if result.data and "number" in result.data and result.data["number"]:
                 return str(result.data["number"])
+            return None
+        except Exception:
+            # If not a student or no record, return None without failing the request
+            return None
+
+    def get_student_major(self, user_id: UUID) -> str | None:
+        """Fetch student major from students table if present."""
+        try:
+            result = (
+                self.client
+                .table("students")
+                .select("major")
+                .eq("id", str(user_id))
+                .single()
+                .execute()
+            )
+            if result.data and "major" in result.data and result.data["major"]:
+                return str(result.data["major"])
             return None
         except Exception:
             # If not a student or no record, return None without failing the request

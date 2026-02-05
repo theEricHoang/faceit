@@ -17,6 +17,7 @@ async def get_my_profile(
 	try:
 		profile = service.get_profile_names_and_type(current_user.user_id)
 		student_number = service.get_student_number(current_user.user_id)
+		student_major = service.get_student_major(current_user.user_id)
 
 		full_name = f"{profile['first_name']} {profile['last_name']}"
 
@@ -28,6 +29,8 @@ async def get_my_profile(
 			last_name=profile["last_name"],
 			full_name=full_name,
 			student_number=student_number,
+			bio=profile.get("bio"),
+			major=student_major,
 		)
 	except UserProfileServiceError as e:
 		raise HTTPException(status_code=404, detail=str(e))

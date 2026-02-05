@@ -205,7 +205,7 @@ export function ProfilePage({
           {resolvedRole === 'instructor' && (
             <View style={styles.card}>
               <Text style={styles.labelText}>Role</Text>
-              <Text style={styles.valueText}>Instructor</Text>
+              <Text style={styles.valueText}>{profile?.bio ?? '—'}</Text>
             </View>
           )}
 
@@ -213,6 +213,20 @@ export function ProfilePage({
             <Text style={styles.labelText}>Email</Text>
             <Text style={styles.valueText}>{profile?.email ?? '—'}</Text>
           </View>
+
+          {resolvedRole === 'student' && (
+            <View style={styles.card}>
+              <Text style={styles.labelText}>Bio</Text>
+              <Text style={styles.valueText}>{profile?.bio ?? '—'}</Text>
+            </View>
+          )}
+
+          {resolvedRole === 'student' && (
+            <View style={styles.card}>
+              <Text style={styles.labelText}>Major</Text>
+              <Text style={styles.valueText}>{profile?.major ?? '—'}</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.section}>

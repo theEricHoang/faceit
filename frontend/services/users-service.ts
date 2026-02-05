@@ -10,6 +10,8 @@ export interface UserProfileResponse {
   last_name: string;
   full_name: string;
   student_number?: string | null;
+  bio?: string | null;
+  major?: string | null;
 }
 
 export const usersService = {

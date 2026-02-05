@@ -21,8 +21,10 @@ class TestGetMyProfileRoute:
                 "first_name": "Alice",
                 "last_name": "Smith",
                 "type": ProfileType.STUDENT.value,
+                "bio": "Computer Science Student",
             }
             mock_instance.get_student_number.return_value = "S12345"
+            mock_instance.get_student_major.return_value = "Computer Science"
 
             response = authenticated_client.get("/users/me/profile")
 
@@ -35,6 +37,9 @@ class TestGetMyProfileRoute:
         assert data["full_name"] == "Alice Smith"
         # Ensure renamed field is present
         assert data["student_number"] == "S12345"
+        # New fields
+        assert data["bio"] == "Computer Science Student"
+        assert data["major"] == "Computer Science"
 
     def test_get_my_profile_not_found_returns_404(self, authenticated_client: TestClient):
         """If service raises, route returns 404."""

@@ -1,10 +1,11 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
-from app.schemas.course import CreateClassRequest, CreateClassResponse, ListClassesResponse, ClassListItem
+from app.schemas.course import CreateClassRequest, CreateClassResponse, ListClassesResponse, ClassListItem, JoinClassRequest, JoinClassResponse, ClassDetailResponse, WithdrawClassResponse
 from app.schemas.user import CurrentUser
 from app.services.classes.class_query_service import ClassService as ClassQueryService
 from app.services.classes.class_service import ClassService, CreateClassError
+from app.services.enrollment_service import EnrollmentService, EnrollmentServiceError
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/classes", tags=["classes"])
@@ -13,6 +14,9 @@ def get_query_service():
 
 def get_class_service():
     return ClassService()
+
+def get_enrollment_service():
+    return EnrollmentService()
 
 @router.get("", response_model=ListClassesResponse)
 async def list_classes(
@@ -35,6 +39,52 @@ async def list_classes(
                 )
                 for cls in classes
             ]
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/open", response_model=ListClassesResponse)
+async def list_open_classes(
+    current_user: CurrentUser = Depends(get_current_user),
+    query_service: ClassQueryService = Depends(get_query_service),
+):
+    """List all classes available in the system (Open Classes)."""
+    try:
+        classes = query_service.get_all_classes()
+        return ListClassesResponse(
+            classes=[
+                ClassListItem(
+                    class_id=UUID(str(cls.get("id"))),
+                    course_code=cls.get("course_code"),
+                    course_name=cls.get("course_name"),
+                    section=cls.get("section"),
+                    term=cls.get("term"),
+                    schedule=cls.get("schedule"),
+                    room=cls.get("room"),
+                )
+                for cls in (classes or [])
+            ]
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{class_id}", response_model=ClassDetailResponse)
+async def get_class_details(
+    class_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    query_service: ClassQueryService = Depends(get_query_service),
+):
+    """Get class details including instructor name. Available to authenticated users."""
+    try:
+        cls = query_service.get_class_details(class_id)
+        return ClassDetailResponse(
+            class_id=UUID(str(cls.get("id"))),
+            course_code=cls.get("course_code"),
+            course_name=cls.get("course_name"),
+            section=cls.get("section"),
+            schedule=cls.get("schedule"),
+            room=cls.get("room"),
+            instructor_name=cls.get("instructor_name") or "",
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -68,3 +118,38 @@ async def create_class(
         )
     except CreateClassError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/join", response_model=JoinClassResponse)
+async def join_class_by_code(
+    payload: JoinClassRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    enroll_service: EnrollmentService = Depends(get_enrollment_service),
+):
+    """Join a class by course_code. Students only."""
+    if current_user.type != "student":
+        raise HTTPException(status_code=403, detail="Only students can join classes")
+    try:
+        result = enroll_service.join_by_course_code(current_user.user_id, payload.course_code)
+        return JoinClassResponse(
+            class_id=UUID(str(result["class_id"])),
+            student_id=current_user.user_id,
+            course_name=result.get("course_name"),
+            section=result.get("section"),
+        )
+    except EnrollmentServiceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/{class_id}/withdraw", response_model=WithdrawClassResponse)
+async def withdraw_from_class(
+    class_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    enroll_service: EnrollmentService = Depends(get_enrollment_service),
+):
+    """Withdraw student from a class (remove enrollment). Students only."""
+    if current_user.type != "student":
+        raise HTTPException(status_code=403, detail="Only students can withdraw from classes")
+    try:
+        result = enroll_service.withdraw_from_class(current_user.user_id, class_id)
+        return WithdrawClassResponse(class_id=UUID(str(result["class_id"])), student_id=current_user.user_id)
+    except EnrollmentServiceError as e:
+        raise HTTPException(status_code=400, detail=str(e))

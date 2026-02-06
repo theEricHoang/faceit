@@ -57,6 +57,15 @@ export default function RootLayout() {
         <Stack>
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="change-password"
+            options={{
+              title: 'Change Password',
+              headerBackTitleVisible: false,
+              headerBackTitle: 'Settings',
+              headerTintColor: '#fdfcfc',
+            }}
+          />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>
         <StatusBar style="auto" />

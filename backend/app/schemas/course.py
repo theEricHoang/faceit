@@ -28,3 +28,25 @@ class CreateClassResponse(BaseModel):
     course_name: str
     section: str
     term: str
+
+class JoinClassRequest(BaseModel):
+    course_code: str
+
+class JoinClassResponse(BaseModel):
+    class_id: UUID
+    student_id: UUID
+    course_name: str
+    section: str
+
+class ClassDetailResponse(BaseModel):
+    class_id: UUID
+    course_code: str
+    course_name: str
+    section: str
+    schedule: str
+    room: Optional[str]
+    instructor_name: str
+
+class WithdrawClassResponse(BaseModel):
+    class_id: UUID
+    student_id: UUID

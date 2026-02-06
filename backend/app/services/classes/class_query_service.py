@@ -16,3 +16,10 @@ class ClassService:
 			return self.read_repo.get_classes_by_student(user_id)
 		else:
 			raise ValueError("Invalid user type")
+
+	def get_all_classes(self) -> List[dict]:
+		"""Return all classes (for Open Classes browsing)."""
+		return self.read_repo.get_all_classes()
+
+	def get_class_details(self, class_id: UUID) -> dict:
+		return self.read_repo.get_class_with_instructor(class_id)

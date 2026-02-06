@@ -76,6 +76,37 @@ class RefreshResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class StudentSignupRequest(BaseModel):
+    """Request schema for student signup."""
+
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
+    number: str = Field(..., min_length=1, max_length=50)
+    major: str | None = Field(default=None, max_length=100)
+    bio: str | None = Field(default=None, max_length=500)
+
+
+class StudentSignupResponse(BaseModel):
+    """Response schema for successful student signup."""
+
+    # Auth tokens
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+    # User data
+    user_id: UUID
+    email: str
+    first_name: str
+    last_name: str
+    number: str
+    major: str | None
+    bio: str | None
+    type: ProfileType
+
+
 # ============================================================================
 # Auth Context
 # ============================================================================

@@ -7,6 +7,8 @@ from app.schemas.user import (
     LoginResponse,
     RefreshRequest,
     RefreshResponse,
+    StudentSignupRequest,
+    StudentSignupResponse,
 )
 from app.services.auth_service import (
     AuthService,
@@ -34,6 +36,29 @@ async def signup_instructor(
 
     try:
         return await auth_service.signup_instructor(request)
+    except SignupError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    
+
+@router.post(
+    "/signup/student",
+    response_model=StudentSignupResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def signup_student(
+    request: StudentSignupRequest,
+) -> StudentSignupResponse:
+    """Sign up a new student.
+
+    Creates an auth user and profile record.
+    """
+    auth_service = AuthService()
+
+    try:
+        return await auth_service.signup_student(request)
     except SignupError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

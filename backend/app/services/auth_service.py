@@ -12,6 +12,8 @@ from app.schemas.user import (
     LoginProfileData,
     RefreshRequest,
     RefreshResponse,
+    StudentSignupRequest,
+    StudentSignupResponse,
 )
 
 
@@ -128,6 +130,85 @@ class AuthService:
                 type=ProfileType.INSTRUCTOR,
                 department=request.department,
                 office_location=request.office_location,
+            )
+
+        except SignupError:
+            # Re-raise SignupError after cleanup
+            if user_id:
+                await self._delete_auth_user(user_id)
+            raise
+
+        except Exception as e:
+            # Clean up auth user if it was created
+            if user_id:
+                await self._delete_auth_user(user_id)
+            raise SignupError(f"Signup failed: {str(e)}") from e
+        
+    async def signup_student(
+        self, request: StudentSignupRequest
+    ) -> StudentSignupResponse:
+        """Sign up a new student.
+
+        Creates an auth user and inserts a profile record.
+        If any step fails after auth user creation, the auth user is deleted
+        to maintain consistency.
+
+        Args:
+            request: The student signup request data.
+
+        Returns:
+            StudentSignupResponse with the created user data.
+
+        Raises:
+            SignupError: If signup fails at any step.
+        """
+        user_id: UUID | None = None
+
+        try:
+            # Step 1: Create auth user via Supabase Auth with user_metadata
+            auth_response = self.client.auth.sign_up(
+                {
+                    "email": request.email,
+                    "password": request.password,
+                    "options": {
+                        "data": {
+                            "type": ProfileType.STUDENT.value,
+                        }
+                    }
+                }
+            )
+
+            if not auth_response.user:
+                raise SignupError("Failed to create auth user")
+
+            user_id = UUID(auth_response.user.id)
+
+            if not auth_response.session:
+                raise SignupError("Failed to create auth session")
+
+            # Step 2: Insert profile record
+            profile_data = {
+                "id": str(user_id),
+                "first_name": request.first_name,
+                "last_name": request.last_name,
+                "type": ProfileType.STUDENT.value,
+            }
+
+            profile_result = self.client.table("profiles").insert(profile_data).execute()
+
+            if not profile_result.data:
+                raise SignupError("Failed to create profile record")
+
+            # Return successful response with auth tokens
+            return StudentSignupResponse(
+                access_token=auth_response.session.access_token,
+                refresh_token=auth_response.session.refresh_token,
+                token_type="bearer",
+                user_id=user_id,
+                email=request.email,
+                first_name=request.first_name,
+                last_name=request.last_name,
+                type=ProfileType.STUDENT,
             )
 
         except SignupError:

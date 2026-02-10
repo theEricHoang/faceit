@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { getOpenClasses, joinClassByCode, type ClassItem } from '@/services/classes-service';
+import { getOpenClasses, joinClassBySection, type ClassItem } from '@/services/classes-service';
 import { useRouter } from 'expo-router';
 
 type OpenClass = {
@@ -54,11 +54,11 @@ export default function FindClassScreen() {
 
   const handleJoinWithCode = async () => {
     if (!inviteCode.trim()) {
-      Alert.alert('Missing Code', 'Please enter an invite code');
+      Alert.alert('Missing Section', 'Please enter a section');
       return;
     }
     try {
-      const res = await joinClassByCode({ course_code: inviteCode.trim() });
+      const res = await joinClassBySection({ section: inviteCode.trim() });
       setSuccessMessage(`Successfully join the class: ${res.course_name}, section: ${res.section}`);
       setSuccessDialogOpen(true);
     } catch (e: any) {
@@ -91,12 +91,12 @@ export default function FindClassScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         {/* Invite Code Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Enter Invite Code</Text>
+          <Text style={styles.sectionTitle}>Enter Section</Text>
           <View style={styles.cardRow}>
             <View style={[styles.searchContainer, { flex: 1, marginBottom: 0 }]}>
               <Ionicons name="pricetag-outline" size={18} color="#888" />
               <TextInput
-                placeholder="Enter code from instructor"
+                placeholder="Enter section (e.g., A)"
                 value={inviteCode}
                 onChangeText={(t) => setInviteCode(t)}
                 autoCapitalize="none"
@@ -265,7 +265,7 @@ export default function FindClassScreen() {
               <Text style={styles.title}>Not Found</Text>
             </View>
             <View style={{ padding: 16 }}>
-              <Text style={styles.valueText}>No class with the corresponding code</Text>
+              <Text style={styles.valueText}>No class with the corresponding section</Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, padding: 16 }}>
               <Pressable

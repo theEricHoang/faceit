@@ -6,6 +6,8 @@ import {
     getRefreshToken,
     setAccessToken,
     setRefreshToken,
+    getUserData,
+    setUserData,
 } from '@/services/secure-storage';
 import type { AuthStore, AuthTokens, User } from '@/types/auth';
 
@@ -16,7 +18,8 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   isHydrated: false,
 
   // Actions
-  setUser: (user: User) => {
+  setUser: async (user: User) => {
+    await setUserData(user);
     set({ user, isAuthenticated: true });
   },
 
@@ -35,19 +38,21 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   hydrate: async () => {
     try {
-      const accessToken = await getAccessToken();
-      const refreshToken = await getRefreshToken();
+      const [accessToken, refreshToken, userData] = await Promise.all([
+        getAccessToken(),
+        getRefreshToken(),
+        getUserData(),
+      ]);
 
-      // If we have both tokens, consider the user authenticated
-      // The actual user data will be fetched separately
-      if (accessToken && refreshToken) {
-        set({ isAuthenticated: true, isHydrated: true });
+      // restore auth state only if we have both tokens and user data
+      if (accessToken && refreshToken && userData) {
+        set({ isAuthenticated: true, isHydrated: true, user: userData });
       } else {
-        set({ isAuthenticated: false, isHydrated: true });
+        set({ isAuthenticated: false, isHydrated: true, user: null });
       }
     } catch (error) {
       console.error('Failed to hydrate auth state:', error);
-      set({ isAuthenticated: false, isHydrated: true });
+      set({ isAuthenticated: false, isHydrated: true, user: null });
     }
   },
 }));

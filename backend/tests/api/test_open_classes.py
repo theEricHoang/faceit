@@ -79,10 +79,12 @@ def test_list_open_classes_success(monkeypatch):
 # Authorization Tests
 # ============================================================================
 
-def test_list_open_classes_unauthorized():
-    """Request without authentication token returns 401."""
-    # Arrange: Clear any auth overrides
+def test_list_open_classes_public_without_auth(monkeypatch):
+    """Open classes endpoint is public; no auth returns 200."""
+    # Arrange: Clear any overrides and mock service
     app.dependency_overrides.clear()
+    from app.services.classes.class_query_service import ClassService
+    monkeypatch.setattr(ClassService, "get_all_classes", lambda self: [])
 
     client = TestClient(app)
 
@@ -90,7 +92,10 @@ def test_list_open_classes_unauthorized():
     response = client.get("/classes/open")
 
     # Assert
-    assert response.status_code == 401
+    assert response.status_code == 200
+    data = response.json()
+    assert "classes" in data
+    assert data["classes"] == []
 
     # Cleanup
     app.dependency_overrides.clear()

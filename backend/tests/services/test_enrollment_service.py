@@ -72,7 +72,8 @@ class TableChain:
             has_id = any(kind == "eq" and col == "id" for kind, col, _ in self._filters)
             return FakeResponse({"id": "12345678-1234-1234-1234-123456789012"} if has_id else None)
         elif self.name == "student_classes":
-            # existing enrollment when both eq filters match
+            # simulate existing based on stored inserts and filters
+            stored_rows = self.store.get("student_classes", [])
             class_id = None
             student_id = None
             for kind, col, val in self._filters:
@@ -80,11 +81,11 @@ class TableChain:
                     class_id = val
                 if kind == "eq" and col == "student_id":
                     student_id = val
-            # Simulate existing if class_id == cls-uuid
-            if class_id == "cls-uuid" and student_id == "12345678-1234-1234-1234-123456789012":
-                rows = [{"id": "enroll-id", "class_id": class_id, "student_id": student_id}]
-            else:
-                rows = []
+            rows = [
+                r for r in stored_rows
+                if (class_id is None or r.get("class_id") == class_id)
+                and (student_id is None or r.get("student_id") == student_id)
+            ]
             if self._limit:
                 rows = rows[: self._limit]
             return FakeResponse(rows)

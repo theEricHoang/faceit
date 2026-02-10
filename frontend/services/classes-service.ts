@@ -33,7 +33,7 @@ export interface CreateClassResponse {
 }
 
 export interface JoinClassRequest {
-  course_code: string;
+  section: string;
 }
 
 export interface JoinClassResponse {
@@ -81,9 +81,9 @@ export async function createClass(data: CreateClassRequest): Promise<CreateClass
 }
 
 /**
- * Join a class by course code (student only)
+ * Join a class by section (student only)
  */
-export async function joinClassByCode(data: JoinClassRequest): Promise<JoinClassResponse> {
+export async function joinClassBySection(data: JoinClassRequest): Promise<JoinClassResponse> {
   return apiClient.post<JoinClassResponse>('/classes/join', data);
 }
 

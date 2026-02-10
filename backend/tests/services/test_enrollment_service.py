@@ -51,11 +51,11 @@ class TableChain:
     # Execute
     def execute(self):
         if self.name == "classes":
-            # honor ilike filter on course_code
-            course_code = None
+            # honor ilike filter on section
+            section = None
             for kind, col, val in self._filters:
-                if kind == "ilike" and col == "course_code":
-                    course_code = val
+                if kind == "ilike" and col == "section":
+                    section = val
             rows = [
                 {
                     "id": "cls-uuid",
@@ -63,7 +63,7 @@ class TableChain:
                     "course_name": "Intro CS",
                     "section": "A",
                 }
-            ] if (course_code is None or course_code.lower() == "cs101") else []
+            ] if (section is None or section.lower() == "a") else []
             if self._limit:
                 rows = rows[: self._limit]
             return FakeResponse(rows)
@@ -102,29 +102,28 @@ class FakeClient:
 
 def test_join_success_returns_details():
     svc = EnrollmentService(client=FakeClient())
-    res = svc.join_by_course_code(UUID("12345678-1234-1234-1234-123456789012"), "cs101")
+    res = svc.join_by_section(UUID("12345678-1234-1234-1234-123456789012"), "A")
     assert res["class_id"] == "cls-uuid"
     assert res["student_id"] == "12345678-1234-1234-1234-123456789012"
     assert res["course_name"] == "Intro CS"
     assert res["section"] == "A"
 
 
-def test_join_existing_enrollment_still_returns_details(monkeypatch):
+def test_join_existing_enrollment_raises():
     client = FakeClient()
     svc = EnrollmentService(client=client)
     # First call: create enrollment
-    _ = svc.join_by_course_code(UUID("12345678-1234-1234-1234-123456789012"), "cs101")
-    # Simulate existing on second call via FakeClient logic
-    res = svc.join_by_course_code(UUID("12345678-1234-1234-1234-123456789012"), "cs101")
-    assert res["class_id"] == "cls-uuid"
-    assert res["course_name"] == "Intro CS"
-    assert res["section"] == "A"
+    _ = svc.join_by_section(UUID("12345678-1234-1234-1234-123456789012"), "A")
+    # Second call: should raise already joined
+    with pytest.raises(EnrollmentServiceError) as e:
+        svc.join_by_section(UUID("12345678-1234-1234-1234-123456789012"), "A")
+    assert "already joined" in str(e.value).lower()
 
 
 def test_join_class_not_found_raises():
     svc = EnrollmentService(client=FakeClient())
     with pytest.raises(EnrollmentServiceError) as e:
-        svc.join_by_course_code(UUID("12345678-1234-1234-1234-123456789012"), "unknown")
+        svc.join_by_section(UUID("12345678-1234-1234-1234-123456789012"), "Z")
     assert "Class not found" in str(e.value)
 
 
@@ -142,5 +141,5 @@ class FakeClientNoStudent(FakeClient):
 def test_join_student_missing_raises():
     svc = EnrollmentService(client=FakeClientNoStudent())
     with pytest.raises(EnrollmentServiceError) as e:
-        svc.join_by_course_code(UUID("12345678-1234-1234-1234-123456789012"), "cs101")
+        svc.join_by_section(UUID("12345678-1234-1234-1234-123456789012"), "A")
     assert "Student record not found" in str(e.value)

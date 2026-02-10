@@ -45,7 +45,6 @@ async def list_classes(
 
 @router.get("/open", response_model=ListClassesResponse)
 async def list_open_classes(
-    current_user: CurrentUser = Depends(get_current_user),
     query_service: ClassQueryService = Depends(get_query_service),
 ):
     """List all classes available in the system (Open Classes)."""
@@ -125,11 +124,11 @@ async def join_class_by_code(
     current_user: CurrentUser = Depends(get_current_user),
     enroll_service: EnrollmentService = Depends(get_enrollment_service),
 ):
-    """Join a class by course_code. Students only."""
+    """Join a class by section. Students only."""
     if current_user.type != "student":
         raise HTTPException(status_code=403, detail="Only students can join classes")
     try:
-        result = enroll_service.join_by_course_code(current_user.user_id, payload.course_code)
+        result = enroll_service.join_by_section(current_user.user_id, payload.section)
         return JoinClassResponse(
             class_id=UUID(str(result["class_id"])),
             student_id=current_user.user_id,

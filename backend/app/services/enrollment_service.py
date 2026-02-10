@@ -14,30 +14,30 @@ class EnrollmentService:
     def __init__(self, client: Client | None = None):
         self.client = client or get_supabase_client()
 
-    def join_by_course_code(self, student_user_id: UUID, course_code: str) -> dict:
+    def join_by_section(self, student_user_id: UUID, section_value: str) -> dict:
         """
-        Enroll the current student (by their user UUID) into a class identified by course_code.
+        Enroll the current student (by their user UUID) into a class identified by section.
 
         Steps:
-        - Find class by course_code in 'classes'
+        - Find class by section in 'classes'
         - Validate student exists in 'students' (id == user id)
         - Insert into 'student_classes' with class_id and student_id
         Returns inserted student_classes row.
         """
         try:
-            # Lookup class by course_code
-            code = course_code.strip()
+            # Lookup class by section
+            sec = section_value.strip()
             class_result = (
                 self.client
                 .table("classes")
                 .select("id, course_code, course_name, section")
-                .ilike("course_code", code)
+                .ilike("section", sec)
                 .limit(1)
                 .execute()
             )
             rows = class_result.data or []
             if len(rows) == 0:
-                raise EnrollmentServiceError("Class not found for given course code")
+                raise EnrollmentServiceError("Class not found for given section")
             cls = rows[0]
             class_id = cls["id"]
             course_name = cls.get("course_name")
@@ -66,12 +66,7 @@ class EnrollmentService:
                 .execute()
             )
             if existing.data:
-                return {
-                    "class_id": str(class_id),
-                    "student_id": str(student_user_id),
-                    "course_name": course_name,
-                    "section": section,
-                }
+                raise EnrollmentServiceError("you already joined this class")
 
             # Insert enrollment; let DB assign 'id' if present
             insert_result = (

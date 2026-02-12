@@ -30,7 +30,7 @@ class CreateClassResponse(BaseModel):
     term: str
 
 class JoinClassRequest(BaseModel):
-    course_code: str
+    section: str
 
 class JoinClassResponse(BaseModel):
     class_id: UUID

@@ -13,38 +13,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Fetch all history for all branches and tags
-
-      - name: Check for backend changes
-        id: backend_changes
-        run: |
-          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -qE '^backend/'; then
-            echo "backend_changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "backend_changed=false" >> $GITHUB_OUTPUT
-          fi
-        working-directory: .
 
       - name: Set up Python
-        if: steps.backend_changes.outputs.backend_changed == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12.2'
 
       - name: Install dependencies
-        if: steps.backend_changes.outputs.backend_changed == 'true'
         run: pip install -r requirements.txt
 
       - name: Run tests
-        if: steps.backend_changes.outputs.backend_changed == 'true'
         env:
             PYTHONPATH: ${{ github.workspace }}/backend
             SUPABASE_URL: "https://test.supabase.co"
             SUPABASE_SERVICE_KEY: "test-service-key"
             SUPABASE_JWT_SECRET: "test-jwt-secret-at-least-32-characters-long"
         run: pytest tests/ -v
-
-      - name: Skip message
-        if: steps.backend_changes.outputs.backend_changed == 'false'
-        run: echo "No backend changes detected, skipping tests."

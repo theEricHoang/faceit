@@ -10,10 +10,13 @@ class StorageService:
         settings = get_settings()
         self.bucket = settings.s3_enrollment_bucket
         self.expiry = settings.s3_presigned_url_expiry
-        self.s3_client = boto3.client(
+        if settings.aws_profile:
+            session = boto3.Session(profile_name=settings.aws_profile)
+        else:
+            session = boto3.Session()
+        
+        self.s3_client = session.client(
             "s3",
-            aws_access_key_id=settings.aws_access_key_id,
-            aws_secret_access_key=settings.aws_secret_access_key,
             region_name=settings.aws_region,
             config=Config(signature_version="s3v4"),
         )

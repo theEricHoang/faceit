@@ -135,13 +135,13 @@ class AuthService:
         except SignupError:
             # Re-raise SignupError after cleanup
             if user_id:
-                await self._delete_auth_user(user_id)
+                await self._rollback_signup(user_id)
             raise
 
         except Exception as e:
-            # Clean up auth user if it was created
+            # Clean up all created records
             if user_id:
-                await self._delete_auth_user(user_id)
+                await self._rollback_signup(user_id)
             raise SignupError(f"Signup failed: {str(e)}") from e
         
     async def signup_student(
@@ -149,9 +149,9 @@ class AuthService:
     ) -> StudentSignupResponse:
         """Sign up a new student.
 
-        Creates an auth user and inserts a profile record.
-        If any step fails after auth user creation, the auth user is deleted
-        to maintain consistency.
+        Creates an auth user, then inserts profile and student records.
+        If any step fails after auth user creation, all created records are
+        deleted to maintain consistency.
 
         Args:
             request: The student signup request data.
@@ -191,6 +191,7 @@ class AuthService:
                 "id": str(user_id),
                 "first_name": request.first_name,
                 "last_name": request.last_name,
+                "bio": request.bio,
                 "type": ProfileType.STUDENT.value,
             }
 
@@ -198,6 +199,20 @@ class AuthService:
 
             if not profile_result.data:
                 raise SignupError("Failed to create profile record")
+
+            # Step 3: Insert student record
+            student_data = {
+                "id": str(user_id),
+                "number": request.number,
+                "major": request.major,
+            }
+
+            student_result = (
+                self.client.table("students").insert(student_data).execute()
+            )
+
+            if not student_result.data:
+                raise SignupError("Failed to create student record")
 
             # Return successful response with auth tokens
             return StudentSignupResponse(
@@ -208,32 +223,54 @@ class AuthService:
                 email=request.email,
                 first_name=request.first_name,
                 last_name=request.last_name,
+                bio=request.bio,
+                number=request.number,
+                major=request.major,
                 type=ProfileType.STUDENT,
             )
 
         except SignupError:
             # Re-raise SignupError after cleanup
             if user_id:
-                await self._delete_auth_user(user_id)
+                await self._rollback_signup(user_id)
             raise
 
         except Exception as e:
-            # Clean up auth user if it was created
+            # Clean up all created records
             if user_id:
-                await self._delete_auth_user(user_id)
+                await self._rollback_signup(user_id)
             raise SignupError(f"Signup failed: {str(e)}") from e
 
-    async def _delete_auth_user(self, user_id: UUID) -> None:
-        """Delete an auth user for rollback purposes.
+    async def _rollback_signup(self, user_id: UUID) -> None:
+        """Roll back all records created during a failed signup.
+
+        Deletes any rows inserted into the profiles, instructors, and students
+        tables, then deletes the Supabase Auth user.  Each step is wrapped in
+        its own try/except so that a failure in one cleanup step does not
+        prevent the remaining steps from executing.
 
         Args:
-            user_id: The UUID of the user to delete.
+            user_id: The UUID of the user whose records should be removed.
         """
+        uid = str(user_id)
+
+        # Clean up role-specific tables first (children before parent)
+        for table in ("instructors", "students"):
+            try:
+                self.client.table(table).delete().eq("id", uid).execute()
+            except Exception:
+                pass
+
+        # Clean up profile row
         try:
-            self.client.auth.admin.delete_user(str(user_id))
+            self.client.table("profiles").delete().eq("id", uid).execute()
         except Exception:
-            # Log error but don't raise - this is cleanup code
-            # In production, you'd want proper logging here
+            pass
+
+        # Finally, remove the auth user
+        try:
+            self.client.auth.admin.delete_user(uid)
+        except Exception:
             pass
 
     async def login(self, request: LoginRequest) -> LoginResponse:

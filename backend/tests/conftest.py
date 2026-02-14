@@ -77,6 +77,20 @@ def sample_signup_data() -> dict[str, Any]:
 
 
 @pytest.fixture
+def sample_student_signup_data() -> dict[str, Any]:
+    """Sample student signup request data."""
+    return {
+        "email": "test.student@example.com",
+        "password": TEST_PASSWORD,
+        "first_name": "Jane",
+        "last_name": "Smith",
+        "number": "STU-001",
+        "major": "Computer Science",
+        "bio": "A passionate student",
+    }
+
+
+@pytest.fixture
 def sample_login_data() -> dict[str, Any]:
     """Sample login request data."""
     return {
@@ -108,6 +122,7 @@ def mock_supabase_client() -> MagicMock:
         table = MagicMock()
         insert_chain = MagicMock()
         select_chain = MagicMock()
+        delete_chain = MagicMock()
 
         # insert().execute() chain
         table.insert.return_value = insert_chain
@@ -124,6 +139,11 @@ def mock_supabase_client() -> MagicMock:
                 "type": "instructor",
             }
         )
+
+        # delete().eq().execute() chain (for rollback)
+        table.delete.return_value = delete_chain
+        delete_chain.eq.return_value = delete_chain
+        delete_chain.execute.return_value = MockTableResponse(data=[])
 
         return table
 

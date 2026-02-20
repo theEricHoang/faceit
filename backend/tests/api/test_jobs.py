@@ -1,7 +1,6 @@
 from unittest.mock import patch, MagicMock
 from uuid import UUID
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.services.job_service import CreateJobError

@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     s3_presigned_url_expiry: int = 3600  # 1 hour
 
     # AWS SQS configuration
-    sqs_enrollment_queue_url: str = ""
+    sqs_enrollment_queue_url: str
 
 @lru_cache
 def get_settings() -> Settings:

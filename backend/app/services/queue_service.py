@@ -1,9 +1,6 @@
 import json
 
-import boto3
-from botocore.config import Config
-
-from app.core.config import get_settings
+from app.db.aws import get_sqs_client
 
 
 class QueueServiceError(Exception):
@@ -14,19 +11,7 @@ class QueueService:
     """Thin wrapper around SQS for sending messages."""
 
     def __init__(self, sqs_client=None):
-        if sqs_client is not None:
-            self.sqs_client = sqs_client
-        else:
-            settings = get_settings()
-            if settings.aws_profile:
-                session = boto3.Session(profile_name=settings.aws_profile)
-            else:
-                session = boto3.Session()
-            self.sqs_client = session.client(
-                "sqs",
-                region_name=settings.aws_region,
-                config=Config(retries={"max_attempts": 3, "mode": "standard"}),
-            )
+        self.sqs_client = sqs_client or get_sqs_client()
 
     def send_message(self, queue_url: str, message_body: dict) -> dict:
         """Send a JSON message to an SQS queue.

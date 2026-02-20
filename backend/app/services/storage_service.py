@@ -1,25 +1,15 @@
 import uuid
-import boto3
-from botocore.config import Config
 
 from app.core.config import get_settings
+from app.db.aws import get_s3_client
 
 
 class StorageService:
-    def __init__(self):
+    def __init__(self, s3_client=None):
         settings = get_settings()
         self.bucket = settings.s3_enrollment_bucket
         self.expiry = settings.s3_presigned_url_expiry
-        if settings.aws_profile:
-            session = boto3.Session(profile_name=settings.aws_profile)
-        else:
-            session = boto3.Session()
-        
-        self.s3_client = session.client(
-            "s3",
-            region_name=settings.aws_region,
-            config=Config(signature_version="s3v4"),
-        )
+        self.s3_client = s3_client or get_s3_client()
 
     def generate_presigned_upload_url(
         self, user_id: str, file_extension: str = "jpg"

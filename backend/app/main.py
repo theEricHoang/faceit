@@ -4,6 +4,7 @@ from app.api.routes import auth
 from app.api.routes import courses
 from app.api.routes import users
 from app.api.routes import enrollment
+from app.api.routes import jobs
 
 app = FastAPI(title="FaceIT API", version="0.1.0")
 
@@ -12,6 +13,7 @@ app.include_router(auth.router)
 app.include_router(courses.router)
 app.include_router(users.router)
 app.include_router(enrollment.router)
+app.include_router(jobs.router)
 
 @app.get("/")
 def read_root():

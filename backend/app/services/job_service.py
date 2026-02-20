@@ -1,0 +1,109 @@
+from supabase import create_client
+
+from app.core.config import get_settings
+from app.schemas.job import CreateJobRequest, CreateJobResponse
+from app.services.queue_service import QueueService, QueueServiceError
+
+
+class JobServiceError(Exception):
+    pass
+
+
+class CreateJobError(JobServiceError):
+    pass
+
+
+def _new_supabase_client():
+    """Create a fresh Supabase client with the service key.
+
+    We intentionally avoid the cached get_supabase_client() because
+    AuthService.login() mutates the cached client's session, replacing
+    the service-role Authorization header with the logged-in user's JWT.
+    A fresh client guarantees we always operate with service-role
+    privileges, which is required for tables with RLS enabled.
+    """
+    settings = get_settings()
+    return create_client(settings.supabase_url, settings.supabase_service_key)
+
+
+class JobService:
+    """Handles creation of async processing jobs."""
+
+    def __init__(self, client=None, queue_service: QueueService | None = None):
+        self.client = client or _new_supabase_client()
+        self.queue_service = queue_service or QueueService()
+
+    async def create_enrollment_job(
+        self, request: CreateJobRequest, user_id: str
+    ) -> CreateJobResponse:
+        """Create an enrollment job and enqueue it for async processing.
+
+        1. Insert a PENDING row into the jobs table.
+        2. Send a message to the enrollment SQS queue.
+        3. Return the job_id.
+
+        If the SQS send fails, the jobs row is rolled back (deleted).
+
+        Args:
+            request: The job creation request (kind, bucket, key).
+            user_id: The authenticated student's user ID.
+
+        Returns:
+            CreateJobResponse containing the job_id.
+
+        Raises:
+            CreateJobError: If the job could not be created.
+        """
+        job_id = None
+        try:
+            # Step 1: Insert job row
+            result = (
+                self.client.table("jobs")
+                .insert(
+                    {
+                        "kind": request.kind,
+                        "status": "PENDING",
+                        "owner_user_id": user_id,
+                        "s3_bucket": request.bucket,
+                        "s3_key": request.key,
+                    }
+                )
+                .execute()
+            )
+
+            job_id = result.data[0]["id"]
+
+            # Step 2: Send SQS message
+            settings = get_settings()
+            self.queue_service.send_message(
+                queue_url=settings.sqs_enrollment_queue_url,
+                message_body={
+                    "job_id": job_id,
+                    "user_id": user_id,
+                    "bucket": request.bucket,
+                    "key": request.key,
+                },
+            )
+
+            # Step 3: Return job_id
+            return CreateJobResponse(job_id=job_id)
+
+        except QueueServiceError as e:
+            # SQS failed — rollback the jobs row
+            if job_id:
+                self._rollback_job(job_id)
+            raise CreateJobError(f"Failed to enqueue job: {str(e)}") from e
+        except CreateJobError:
+            raise
+        except Exception as e:
+            if job_id:
+                self._rollback_job(job_id)
+            raise CreateJobError(f"Failed to create job: {str(e)}") from e
+
+    def _rollback_job(self, job_id: str) -> None:
+        """Delete a jobs row on failure. Best-effort; errors are logged but not raised."""
+        try:
+            self.client.table("jobs").delete().eq("id", job_id).execute()
+        except Exception:
+            # Best-effort rollback — don't mask the original error
+            pass

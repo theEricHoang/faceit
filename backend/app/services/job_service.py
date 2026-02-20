@@ -1,6 +1,5 @@
-from supabase import create_client
-
 from app.core.config import get_settings
+from app.db.supabase import get_supabase_client
 from app.schemas.job import CreateJobRequest, CreateJobResponse
 from app.services.queue_service import QueueService, QueueServiceError
 
@@ -13,24 +12,11 @@ class CreateJobError(JobServiceError):
     pass
 
 
-def _new_supabase_client():
-    """Create a fresh Supabase client with the service key.
-
-    We intentionally avoid the cached get_supabase_client() because
-    AuthService.login() mutates the cached client's session, replacing
-    the service-role Authorization header with the logged-in user's JWT.
-    A fresh client guarantees we always operate with service-role
-    privileges, which is required for tables with RLS enabled.
-    """
-    settings = get_settings()
-    return create_client(settings.supabase_url, settings.supabase_service_key)
-
-
 class JobService:
     """Handles creation of async processing jobs."""
 
     def __init__(self, client=None, queue_service: QueueService | None = None):
-        self.client = client or _new_supabase_client()
+        self.client = client or get_supabase_client()
         self.queue_service = queue_service or QueueService()
 
     async def create_enrollment_job(

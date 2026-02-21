@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from supabase import Client
@@ -15,6 +16,8 @@ from app.schemas.user import (
     StudentSignupRequest,
     StudentSignupResponse,
 )
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class AuthServiceError(Exception):
@@ -259,19 +262,19 @@ class AuthService:
             try:
                 self.client.table(table).delete().eq("id", uid).execute()
             except Exception:
-                pass
+                logger.exception("Rollback: failed to delete %s row for user %s", table, uid)
 
         # Clean up profile row
         try:
             self.client.table("profiles").delete().eq("id", uid).execute()
         except Exception:
-            pass
+            logger.exception("Rollback: failed to delete profiles row for user %s", uid)
 
         # Finally, remove the auth user
         try:
             self.client.auth.admin.delete_user(uid)
         except Exception:
-            pass
+            logger.exception("Rollback: failed to delete auth user %s", uid)
 
     async def login(self, request: LoginRequest) -> LoginResponse:
         """Log in a user with email and password.

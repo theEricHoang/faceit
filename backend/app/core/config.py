@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     s3_enrollment_bucket: str = "faceit-uploads-dev"
     s3_presigned_url_expiry: int = 3600  # 1 hour
 
+    # AWS SQS configuration
+    sqs_enrollment_queue_url: Optional[str] = None
+    sqs_max_messages: int = 5
+    sqs_wait_time_seconds: int = 10
+
+    # Worker runtime configuration
+    worker_max_empty_polls: int = 3
+    worker_poll_sleep_seconds: int = 2
+
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance."""

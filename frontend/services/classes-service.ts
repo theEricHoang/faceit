@@ -32,6 +32,32 @@ export interface CreateClassResponse {
   term: string;
 }
 
+export interface JoinClassRequest {
+  section: string;
+}
+
+export interface JoinClassResponse {
+  class_id: string;
+  student_id: string;
+  course_name: string;
+  section: string;
+}
+
+export interface ClassDetailResponse {
+  class_id: string;
+  course_code: string;
+  course_name: string;
+  section: string;
+  schedule: string;
+  room: string | null;
+  instructor_name: string;
+}
+
+export interface WithdrawClassResponse {
+  class_id: string;
+  student_id: string;
+}
+
 export interface StudentEnrollmentItem {
   user_id: string;
   first_name: string;
@@ -53,10 +79,38 @@ export async function getClasses(): Promise<ListClassesResponse> {
 }
 
 /**
+ * Get all classes available (Open Classes)
+ */
+export async function getOpenClasses(): Promise<ListClassesResponse> {
+  return apiClient.get<ListClassesResponse>('/classes/open');
+}
+
+/**
  * Create a new class (instructor only)
  */
 export async function createClass(data: CreateClassRequest): Promise<CreateClassResponse> {
   return apiClient.post<CreateClassResponse>('/classes', data);
+}
+
+/**
+ * Join a class by section (student only)
+ */
+export async function joinClassBySection(data: JoinClassRequest): Promise<JoinClassResponse> {
+  return apiClient.post<JoinClassResponse>('/classes/join', data);
+}
+
+/**
+ * Get class details by id including instructor name
+ */
+export async function getClassDetails(classId: string): Promise<ClassDetailResponse> {
+  return apiClient.get<ClassDetailResponse>(`/classes/${classId}`);
+}
+
+/**
+ * Withdraw current student from a class
+ */
+export async function withdrawFromClass(classId: string): Promise<WithdrawClassResponse> {
+  return apiClient.delete<WithdrawClassResponse>(`/classes/${classId}/withdraw`);
 }
 
 /**

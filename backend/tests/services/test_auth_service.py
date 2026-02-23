@@ -10,6 +10,7 @@ from app.schemas.user import (
     InstructorSignupRequest,
     LoginRequest,
     RefreshRequest,
+    StudentSignupRequest,
 )
 from app.services.auth_service import (
     AuthService,
@@ -147,21 +148,37 @@ class TestSignupInstructor:
     async def test_signup_instructor_instructor_failure_triggers_rollback(
         self, mock_supabase_client: MagicMock, sample_signup_data: dict
     ):
-        """Test that instructor insert failure triggers auth user deletion."""
-        # Configure instructor insert to fail
+        """Test that instructor insert failure triggers full rollback including profile row."""
+        # Configure instructor insert to fail but profiles to succeed
         profiles_table = MagicMock()
         profiles_table.insert.return_value.execute.return_value = MockTableResponse(
             data=[{"id": TEST_USER_ID}]
         )
+        profiles_delete_chain = MagicMock()
+        profiles_table.delete.return_value = profiles_delete_chain
+        profiles_delete_chain.eq.return_value = profiles_delete_chain
+        profiles_delete_chain.execute.return_value = MockTableResponse(data=[])
 
         instructors_table = MagicMock()
         instructors_table.insert.return_value.execute.return_value = MockTableResponse(
             data=None
         )
+        instructors_delete_chain = MagicMock()
+        instructors_table.delete.return_value = instructors_delete_chain
+        instructors_delete_chain.eq.return_value = instructors_delete_chain
+        instructors_delete_chain.execute.return_value = MockTableResponse(data=[])
+
+        students_table = MagicMock()
+        students_delete_chain = MagicMock()
+        students_table.delete.return_value = students_delete_chain
+        students_delete_chain.eq.return_value = students_delete_chain
+        students_delete_chain.execute.return_value = MockTableResponse(data=[])
 
         def table_router(name: str) -> MagicMock:
             if name == "profiles":
                 return profiles_table
+            if name == "students":
+                return students_table
             return instructors_table
 
         mock_supabase_client.table.side_effect = table_router
@@ -174,6 +191,10 @@ class TestSignupInstructor:
 
         # Verify auth user was deleted for rollback
         mock_supabase_client.auth.admin.delete_user.assert_called_once_with(TEST_USER_ID)
+
+        # Verify profile row was cleaned up
+        profiles_table.delete.assert_called_once()
+        profiles_delete_chain.eq.assert_called_with("id", TEST_USER_ID)
 
     @pytest.mark.asyncio
     async def test_signup_instructor_unexpected_error_triggers_rollback(
@@ -188,6 +209,204 @@ class TestSignupInstructor:
 
         with pytest.raises(SignupError, match="Signup failed"):
             await auth_service.signup_instructor(request)
+
+        # Verify auth user was deleted for rollback
+        mock_supabase_client.auth.admin.delete_user.assert_called_once_with(TEST_USER_ID)
+
+
+# ============================================================================
+# signup_student Tests
+# ============================================================================
+
+
+class TestSignupStudent:
+    """Tests for AuthService.signup_student()."""
+
+    @pytest.mark.asyncio
+    async def test_signup_student_success(
+        self, mock_supabase_client: MagicMock, sample_student_signup_data: dict
+    ):
+        """Test successful student signup creates all records and returns tokens."""
+        auth_service = AuthService(client=mock_supabase_client)
+        request = StudentSignupRequest(**sample_student_signup_data)
+
+        result = await auth_service.signup_student(request)
+
+        # Verify auth user was created with correct metadata
+        mock_supabase_client.auth.sign_up.assert_called_once_with(
+            {
+                "email": sample_student_signup_data["email"],
+                "password": sample_student_signup_data["password"],
+                "options": {
+                    "data": {
+                        "type": "student",
+                    }
+                },
+            }
+        )
+
+        # Verify auth tokens are returned
+        assert result.access_token == "mock-access-token"
+        assert result.refresh_token == "mock-refresh-token"
+        assert result.token_type == "bearer"
+
+        # Verify response data
+        assert result.user_id == UUID(TEST_USER_ID)
+        assert result.email == sample_student_signup_data["email"]
+        assert result.first_name == sample_student_signup_data["first_name"]
+        assert result.last_name == sample_student_signup_data["last_name"]
+        assert result.number == sample_student_signup_data["number"]
+        assert result.major == sample_student_signup_data["major"]
+        assert result.bio == sample_student_signup_data["bio"]
+        assert result.type == ProfileType.STUDENT
+
+    @pytest.mark.asyncio
+    async def test_signup_student_auth_failure(
+        self, mock_supabase_client: MagicMock, sample_student_signup_data: dict
+    ):
+        """Test signup fails gracefully when auth user creation fails."""
+        mock_supabase_client.auth.sign_up.return_value = MockAuthResponse(
+            user=None, session=None
+        )
+
+        auth_service = AuthService(client=mock_supabase_client)
+        request = StudentSignupRequest(**sample_student_signup_data)
+
+        with pytest.raises(SignupError, match="Failed to create auth user"):
+            await auth_service.signup_student(request)
+
+        # No cleanup needed since no user was created
+        mock_supabase_client.auth.admin.delete_user.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_signup_student_no_session_failure(
+        self, mock_supabase_client: MagicMock, sample_student_signup_data: dict
+    ):
+        """Test signup fails when user is created but session is missing."""
+        mock_supabase_client.auth.sign_up.return_value = MockAuthResponse(
+            user=MockUser(TEST_USER_ID, sample_student_signup_data["email"]),
+            session=None,
+        )
+
+        auth_service = AuthService(client=mock_supabase_client)
+        request = StudentSignupRequest(**sample_student_signup_data)
+
+        with pytest.raises(SignupError, match="Failed to create auth session"):
+            await auth_service.signup_student(request)
+
+        # Verify cleanup was attempted
+        mock_supabase_client.auth.admin.delete_user.assert_called_once_with(TEST_USER_ID)
+
+    @pytest.mark.asyncio
+    async def test_signup_student_profile_failure_triggers_rollback(
+        self, mock_supabase_client: MagicMock, sample_student_signup_data: dict
+    ):
+        """Test that profile insert failure triggers rollback."""
+        profiles_table = MagicMock()
+        profiles_table.insert.return_value.execute.return_value = MockTableResponse(
+            data=None
+        )
+        profiles_delete_chain = MagicMock()
+        profiles_table.delete.return_value = profiles_delete_chain
+        profiles_delete_chain.eq.return_value = profiles_delete_chain
+        profiles_delete_chain.execute.return_value = MockTableResponse(data=[])
+
+        students_table = MagicMock()
+        students_table.insert.return_value.execute.return_value = MockTableResponse(
+            data=[{"id": TEST_USER_ID}]
+        )
+        students_delete_chain = MagicMock()
+        students_table.delete.return_value = students_delete_chain
+        students_delete_chain.eq.return_value = students_delete_chain
+        students_delete_chain.execute.return_value = MockTableResponse(data=[])
+
+        instructors_table = MagicMock()
+        instructors_delete_chain = MagicMock()
+        instructors_table.delete.return_value = instructors_delete_chain
+        instructors_delete_chain.eq.return_value = instructors_delete_chain
+        instructors_delete_chain.execute.return_value = MockTableResponse(data=[])
+
+        def table_router(name: str) -> MagicMock:
+            if name == "profiles":
+                return profiles_table
+            if name == "instructors":
+                return instructors_table
+            return students_table
+
+        mock_supabase_client.table.side_effect = table_router
+
+        auth_service = AuthService(client=mock_supabase_client)
+        request = StudentSignupRequest(**sample_student_signup_data)
+
+        with pytest.raises(SignupError, match="Failed to create profile record"):
+            await auth_service.signup_student(request)
+
+        # Verify auth user was deleted for rollback
+        mock_supabase_client.auth.admin.delete_user.assert_called_once_with(TEST_USER_ID)
+
+    @pytest.mark.asyncio
+    async def test_signup_student_student_failure_triggers_rollback(
+        self, mock_supabase_client: MagicMock, sample_student_signup_data: dict
+    ):
+        """Test that student insert failure triggers full rollback including profile row."""
+        profiles_table = MagicMock()
+        profiles_table.insert.return_value.execute.return_value = MockTableResponse(
+            data=[{"id": TEST_USER_ID}]
+        )
+        profiles_delete_chain = MagicMock()
+        profiles_table.delete.return_value = profiles_delete_chain
+        profiles_delete_chain.eq.return_value = profiles_delete_chain
+        profiles_delete_chain.execute.return_value = MockTableResponse(data=[])
+
+        students_table = MagicMock()
+        students_table.insert.return_value.execute.return_value = MockTableResponse(
+            data=None
+        )
+        students_delete_chain = MagicMock()
+        students_table.delete.return_value = students_delete_chain
+        students_delete_chain.eq.return_value = students_delete_chain
+        students_delete_chain.execute.return_value = MockTableResponse(data=[])
+
+        instructors_table = MagicMock()
+        instructors_delete_chain = MagicMock()
+        instructors_table.delete.return_value = instructors_delete_chain
+        instructors_delete_chain.eq.return_value = instructors_delete_chain
+        instructors_delete_chain.execute.return_value = MockTableResponse(data=[])
+
+        def table_router(name: str) -> MagicMock:
+            if name == "profiles":
+                return profiles_table
+            if name == "instructors":
+                return instructors_table
+            return students_table
+
+        mock_supabase_client.table.side_effect = table_router
+
+        auth_service = AuthService(client=mock_supabase_client)
+        request = StudentSignupRequest(**sample_student_signup_data)
+
+        with pytest.raises(SignupError, match="Failed to create student record"):
+            await auth_service.signup_student(request)
+
+        # Verify auth user was deleted for rollback
+        mock_supabase_client.auth.admin.delete_user.assert_called_once_with(TEST_USER_ID)
+
+        # Verify profile row was cleaned up
+        profiles_table.delete.assert_called_once()
+        profiles_delete_chain.eq.assert_called_with("id", TEST_USER_ID)
+
+    @pytest.mark.asyncio
+    async def test_signup_student_unexpected_error_triggers_rollback(
+        self, mock_supabase_client: MagicMock, sample_student_signup_data: dict
+    ):
+        """Test that unexpected exceptions still trigger rollback."""
+        mock_supabase_client.table.side_effect = Exception("Database connection lost")
+
+        auth_service = AuthService(client=mock_supabase_client)
+        request = StudentSignupRequest(**sample_student_signup_data)
+
+        with pytest.raises(SignupError, match="Signup failed"):
+            await auth_service.signup_student(request)
 
         # Verify auth user was deleted for rollback
         mock_supabase_client.auth.admin.delete_user.assert_called_once_with(TEST_USER_ID)

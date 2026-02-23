@@ -3,8 +3,6 @@ name: Tests
 
 on:
   pull_request:
-    paths:
-      - 'backend/**'  # Only trigger on backend changes
 
 jobs:
   test-backend:

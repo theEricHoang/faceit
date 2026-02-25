@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -24,7 +25,7 @@ class SmokeResult:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run end-to-end smoke test for enrollment worker v0."
+        description="Run end-to-end smoke test for enrollment worker (v0 or v1)."
     )
     parser.add_argument(
         "--user-id",
@@ -40,6 +41,12 @@ def parse_args() -> argparse.Namespace:
         "--bucket",
         default=None,
         help="Optional S3 bucket override (defaults to S3_ENROLLMENT_BUCKET).",
+    )
+    parser.add_argument(
+        "--embedding-mode",
+        default="v0",
+        choices=["v0", "v1"],
+        help="Worker embedding mode to test (v0 uses stub embeddings, v1 uses InsightFace).",
     )
     parser.add_argument(
         "--skip-failure-path",
@@ -118,13 +125,18 @@ def get_job(supabase, job_id: str) -> dict:
     return result.data
 
 
-def count_recent_stub_embeddings(supabase, user_id: str, since_iso: str) -> int:
+def count_recent_embeddings(
+    supabase,
+    user_id: str,
+    since_iso: str,
+    model: str,
+) -> int:
     result = (
         supabase
         .table("face_embeddings")
         .select("id", count="exact")
         .eq("user_id", user_id)
-        .eq("model", "stub-embedding-v0")
+        .eq("model", model)
         .gte("created_at", since_iso)
         .execute()
     )
@@ -207,6 +219,7 @@ def run_smoke_test(
     owner_user_id: str | None,
     bucket_override: str | None,
     skip_failure_path: bool,
+    embedding_mode: str,
 ) -> int:
     settings = get_settings()
     supabase = get_supabase_client()
@@ -280,7 +293,7 @@ def run_smoke_test(
             },
         )
 
-    LOGGER.info("Running worker to drain queue")
+    LOGGER.info("Running worker to drain queue (embedding_mode=%s)", embedding_mode)
     worker = EnrollmentWorker(client=supabase)
     worker.run()
 
@@ -297,13 +310,14 @@ def run_smoke_test(
             SmokeResult(False, f"Happy path job status expected succeeded, got {happy_job.get('status')}")
         )
 
-    embeddings_count = count_recent_stub_embeddings(supabase, user_id, started_at)
+    model = "worker-v0" if embedding_mode == "v0" else "insightface-worker-v1"
+    embeddings_count = count_recent_embeddings(supabase, user_id, started_at, model)
     if embeddings_count >= 1:
         results.append(
-            SmokeResult(True, f"At least one stub embedding created since test start (count={embeddings_count})")
+            SmokeResult(True, f"At least one embedding created since test start (count={embeddings_count})")
         )
     else:
-        results.append(SmokeResult(False, "No stub embedding created by worker"))
+        results.append(SmokeResult(False, "No embedding created by worker"))
 
     if not skip_failure_path:
         bad_job = get_job(supabase, bad_job_id)
@@ -343,12 +357,16 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = parse_args()
 
+    os.environ["WORKER_EMBEDDING_MODE"] = args.embedding_mode
+    get_settings.cache_clear()
+
     try:
         exit_code = run_smoke_test(
             user_id=args.user_id,
             owner_user_id=args.owner_user_id,
             bucket_override=args.bucket,
             skip_failure_path=args.skip_failure_path,
+            embedding_mode=args.embedding_mode,
         )
     except (BotoCoreError, ClientError, RuntimeError, ValueError, TokenRetrievalError) as exc:
         LOGGER.exception("Smoke test failed with error: %s", exc)

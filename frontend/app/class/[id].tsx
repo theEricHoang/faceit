@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, ScrollView, Modal, Alert } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getClassDetails, withdrawFromClass, type ClassDetailResponse } from '@/services/classes-service';
+import { useAuthStore } from '@/stores/auth-store';
 
 const MOCK_ATTENDANCE_RECORDS = [
   { date: '2025-10-20', status: 'present' as const },
@@ -17,9 +18,11 @@ const MOCK_ATTENDANCE_RECORDS = [
   { date: '2025-09-29', status: 'present' as const },
 ];
 
-export default function StudentClassDetailsScreen() {
+export default function ClassDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string }>();
+  const user = useAuthStore((state) => state.user);
+  const isInstructor = user?.type === 'instructor';
   const [details, setDetails] = useState<ClassDetailResponse | null>(null);
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
 
@@ -69,6 +72,19 @@ export default function StudentClassDetailsScreen() {
           </View>
         </View>
 
+        {/* Take Attendance (Instructor only) */}
+        {isInstructor && (
+          <Pressable
+            style={styles.takeAttendanceButton}
+            onPress={() => {
+              // TODO: navigate to take-attendance camera flow
+            }}
+          >
+            <Ionicons name="camera-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={styles.primaryButtonText}>Take Attendance</Text>
+          </Pressable>
+        )}
+
         {/* Attendance Summary */}
         <View style={styles.card}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -116,20 +132,22 @@ export default function StudentClassDetailsScreen() {
           ))}
         </View>
 
-        {/* Withdraw Button */}
-        <Pressable style={[styles.primaryButton, styles.destructiveButton, { marginTop: 16 }]} onPress={() => setWithdrawDialogOpen(true)}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name="log-out-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
-            <Text style={styles.primaryButtonText}>Withdraw from Class</Text>
-          </View>
-        </Pressable>
+        {/* Withdraw Button (Student only) */}
+        {!isInstructor && (
+          <Pressable style={[styles.primaryButton, styles.destructiveButton, { marginTop: 16 }]} onPress={() => setWithdrawDialogOpen(true)}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="log-out-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={styles.primaryButtonText}>Withdraw from Class</Text>
+            </View>
+          </Pressable>
+        )}
 
-        {/* Withdraw Confirmation Dialog */}
+        {/* Withdraw Confirmation Dialog (Student only) */}
         <Modal visible={withdrawDialogOpen} transparent animationType="fade" onRequestClose={() => setWithdrawDialogOpen(false)}>
           <Pressable style={styles.menuOverlay} onPress={() => setWithdrawDialogOpen(false)}>
             <View style={styles.menuContainer}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Are you sure Withdrawing from class?</Text>
+                <Text style={styles.modalTitle}>Are you sure you want to withdraw from class?</Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, padding: 16 }}>
                 <Pressable
@@ -229,6 +247,15 @@ const styles = StyleSheet.create({
   },
   destructiveButton: {
     backgroundColor: '#dc2626',
+  },
+  takeAttendanceButton: {
+    flexDirection: 'row',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: '#000',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   primaryButtonText: { color: '#fff', fontWeight: '600' },
   menuOverlay: {

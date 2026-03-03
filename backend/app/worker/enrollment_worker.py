@@ -6,11 +6,11 @@ import random
 import time
 from typing import Any
 
-import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from supabase import Client
 
 from app.core.config import get_settings
+from app.db.aws import get_s3_client, get_sqs_client
 from app.db.supabase import get_supabase_client
 from app.utils.embedding_extractor import (
     EmbeddingExtractor,
@@ -24,10 +24,6 @@ LOGGER = logging.getLogger(__name__)
 class EnrollmentWorker:
     def __init__(self, client: Client | None = None) -> None:
         settings = get_settings()
-        if settings.aws_profile:
-            session = boto3.Session(profile_name=settings.aws_profile)
-        else:
-            session = boto3.Session()
 
         if not settings.sqs_enrollment_queue_url:
             raise ValueError(
@@ -42,8 +38,8 @@ class EnrollmentWorker:
         self.max_empty_polls = settings.worker_max_empty_polls
         self.empty_poll_sleep_seconds = settings.worker_poll_sleep_seconds
 
-        self.sqs_client = session.client("sqs", region_name=settings.aws_region)
-        self.s3_client = session.client("s3", region_name=settings.aws_region)
+        self.sqs_client = get_sqs_client()
+        self.s3_client = get_s3_client()
         self.supabase = client or get_supabase_client()
         self.embedding_mode = self._resolve_embedding_mode(settings.worker_embedding_mode)
 
@@ -246,7 +242,7 @@ class EnrollmentWorker:
                 )
             except Exception as update_exc:
                 LOGGER.error("Failed to mark job %s as failed: %s", job_id, update_exc)
-        self._delete_message(receipt_handle)
+        # Do not delete message on failure - allow SQS to retry or move to DLQ
 
     @staticmethod
     def _resolve_embedding_mode(value: str) -> str:

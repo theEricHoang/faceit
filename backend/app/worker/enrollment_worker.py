@@ -6,23 +6,19 @@ import random
 import time
 from typing import Any
 
-import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from supabase import Client
 
 from app.core.config import get_settings
+from app.db.aws import get_s3_client, get_sqs_client
 from app.db.supabase import get_supabase_client
 
-LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 class EnrollmentWorker:
     def __init__(self, client: Client | None = None) -> None:
         settings = get_settings()
-        if settings.aws_profile:
-            session = boto3.Session(profile_name=settings.aws_profile)
-        else:
-            session = boto3.Session()
 
         if not settings.sqs_enrollment_queue_url:
             raise ValueError(
@@ -37,13 +33,13 @@ class EnrollmentWorker:
         self.max_empty_polls = settings.worker_max_empty_polls
         self.empty_poll_sleep_seconds = settings.worker_poll_sleep_seconds
 
-        self.sqs_client = session.client("sqs", region_name=settings.aws_region)
-        self.s3_client = session.client("s3", region_name=settings.aws_region)
+        self.sqs_client = get_sqs_client()
+        self.s3_client = get_s3_client()
         self.supabase = client or get_supabase_client()
 
     def run(self) -> None:
         empty_polls = 0
-        LOGGER.info("Starting enrollment worker")
+        logger.info("Starting enrollment worker")
 
         while empty_polls < self.max_empty_polls:
             messages = self._receive_messages()
@@ -56,7 +52,7 @@ class EnrollmentWorker:
             for message in messages:
                 self._handle_message(message)
 
-        LOGGER.info("No messages after %s polls; exiting", self.max_empty_polls)
+        logger.info("No messages after %s polls; exiting", self.max_empty_polls)
 
     def _receive_messages(self) -> list[dict[str, Any]]:
         try:
@@ -66,7 +62,7 @@ class EnrollmentWorker:
                 WaitTimeSeconds=self.wait_time_seconds,
             )
         except (BotoCoreError, ClientError) as exc:
-            LOGGER.error("SQS receive failed: %s", exc)
+            logger.error("SQS receive failed: %s", exc)
             return []
 
         return response.get("Messages", [])
@@ -74,7 +70,7 @@ class EnrollmentWorker:
     def _handle_message(self, message: dict[str, Any]) -> None:
         receipt_handle = message.get("ReceiptHandle")
         if not receipt_handle:
-            LOGGER.error("Missing receipt handle; skipping message")
+            logger.error("Missing receipt handle; skipping message")
             return
 
         job_id: str | None = None
@@ -82,21 +78,21 @@ class EnrollmentWorker:
             payload = self._parse_message_body(message.get("Body"))
             job_id = payload.get("job_id")
             user_id = payload.get("user_id")
-            s3_bucket = payload.get("s3_bucket") or self.default_bucket
-            s3_key = payload.get("s3_key")
+            bucket = payload.get("bucket") or self.default_bucket
+            key = payload.get("key")
 
-            if not job_id or not user_id or not s3_key:
+            if not job_id or not user_id or not key:
                 raise ValueError("Missing required fields in message body")
 
             existing_status = self._get_job_status(job_id)
             if isinstance(existing_status, str) and existing_status.lower() == "succeeded":
-                LOGGER.info("Job already succeeded; deleting message %s", job_id)
+                logger.info("Job already succeeded; deleting message %s", job_id)
                 self._delete_message(receipt_handle)
                 return
 
             self._update_job_status(job_id, "running")
 
-            self._download_image(s3_bucket, s3_key)
+            self._download_image(bucket, key)
             embedding = generate_stub_embedding(job_id)
 
             self._insert_embedding(user_id=user_id, embedding=embedding)
@@ -104,13 +100,13 @@ class EnrollmentWorker:
             self._delete_message(receipt_handle)
         except Exception as exc:
             error_message = f"WORKER_ERROR: {exc}"
-            LOGGER.exception("Failed to process job %s", job_id or "<unknown>")
+            logger.exception("Failed to process job %s", job_id or "<unknown>")
             if job_id:
                 try:
                     self._update_job_status(job_id, "failed", error_message=error_message)
                 except Exception as update_exc:
-                    LOGGER.error("Failed to mark job %s as failed: %s", job_id, update_exc)
-            self._delete_message(receipt_handle)
+                    logger.error("Failed to mark job %s as failed: %s", job_id, update_exc)
+            # Do not delete message on failure - allow SQS to retry or move to DLQ
 
     def _parse_message_body(self, body: str | None) -> dict[str, Any]:
         if not body:
@@ -193,7 +189,7 @@ class EnrollmentWorker:
                 ReceiptHandle=receipt_handle,
             )
         except (BotoCoreError, ClientError) as exc:
-            LOGGER.error("Failed to delete message: %s", exc)
+            logger.error("Failed to delete message: %s", exc)
 
 
 def generate_stub_embedding(seed_value: str, size: int = 512) -> list[float]:

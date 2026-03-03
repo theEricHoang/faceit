@@ -77,7 +77,7 @@ export default function ClassDetailsScreen() {
           <Pressable
             style={styles.takeAttendanceButton}
             onPress={() => {
-              // TODO: navigate to take-attendance camera flow
+              router.push(`/class/${params.id}/take-attendance`);
             }}
           >
             <Ionicons name="camera-outline" size={20} color="#fff" style={{ marginRight: 8 }} />

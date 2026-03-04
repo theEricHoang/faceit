@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     worker_poll_sleep_seconds: int = 2
     worker_embedding_mode: str = "v1"
 
+
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance."""

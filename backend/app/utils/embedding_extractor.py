@@ -1,5 +1,7 @@
 import logging
 import math
+import threading
+from typing import ClassVar
 
 import cv2
 import numpy as np
@@ -19,27 +21,35 @@ class MultipleFacesDetectedError(ValueError):
 class EmbeddingExtractor:
     """Extracts face embeddings using InsightFace ArcFace model."""
 
-    _instance: "EmbeddingExtractor | None" = None
+    _instance: ClassVar["EmbeddingExtractor | None"] = None
+    _init_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(self):
         """Initialize InsightFace analyzer (loads model on first use)."""
         self.app: FaceAnalysis | None = None
+        self._load_lock = threading.Lock()
 
     def _ensure_loaded(self) -> None:
-        """Lazy-load the InsightFace app on first call."""
+        """Lazy-load the InsightFace app on first call (thread-safe)."""
         if self.app is None:
-            logger.info("Loading InsightFace model (first initialization)...")
-            self.app = FaceAnalysis(
-                name="buffalo_l",  # L-model: high accuracy, outputs 512-dim embeddings
-                providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-            )
-            self.app.prepare(ctx_id=0)  # ctx_id=0 for GPU, -1 for CPU
+            with self._load_lock:
+                if self.app is None:
+                    logger.info("Loading InsightFace model (first initialization)...")
+                    self.app = FaceAnalysis(
+                        name="buffalo_l",  # L-model: high accuracy, outputs 512-dim embeddings
+                        providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+                    )
+                    # ctx_id=-1 uses CPU; CUDAExecutionProvider in the providers
+                    # list will still enable GPU when available
+                    self.app.prepare(ctx_id=-1)
 
     @classmethod
     def get_instance(cls) -> "EmbeddingExtractor":
         """Get singleton instance (model loads on first access)."""
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._init_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
         return cls._instance
 
     def extract_embedding(self, image_bytes: bytes) -> tuple[list[float], float]:

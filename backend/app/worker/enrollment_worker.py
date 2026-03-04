@@ -20,6 +20,12 @@ from app.utils.embedding_extractor import (
 
 logger = logging.getLogger("uvicorn.error")
 
+# DB enum values for jobs.status
+_STATUS_PENDING = "PENDING"
+_STATUS_RUNNING = "RUNNING"
+_STATUS_SUCCEEDED = "SUCCEEDED"
+_STATUS_FAILED = "FAILED"
+
 
 class EnrollmentWorker:
     def __init__(self, client: Client | None = None) -> None:
@@ -84,23 +90,23 @@ class EnrollmentWorker:
             payload = self._parse_message_body(message.get("Body"))
             job_id = payload.get("job_id")
             user_id = payload.get("user_id")
-            bucket = payload.get("bucket") or self.default_bucket
-            key = payload.get("key")
+            s3_bucket = payload.get("s3_bucket") or self.default_bucket
+            s3_key = payload.get("s3_key")
 
-            if not job_id or not user_id or not key:
+            if not job_id or not user_id or not s3_key:
                 raise ValueError("Missing required fields in message body")
 
             existing_status = self._get_job_status(job_id)
-            if isinstance(existing_status, str) and existing_status.lower() == "succeeded":
+            if existing_status == _STATUS_SUCCEEDED:
                 logger.info("Job already succeeded; deleting message %s", job_id)
                 self._delete_message(receipt_handle)
                 return
 
-            self._update_job_status(job_id, "running")
+            self._update_job_status(job_id, _STATUS_RUNNING)
 
             image_bytes = self._download_image(s3_bucket, s3_key)
             if self.embedding_mode == "v0":
-                embedding = generate_stub_embedding(job_id)
+                embedding = _generate_stub_embedding(job_id)
                 quality_score = None
                 model = "worker-v0"
             else:
@@ -113,7 +119,7 @@ class EnrollmentWorker:
                 model=model,
                 quality_score=quality_score,
             )
-            self._update_job_status(job_id, "succeeded")
+            self._update_job_status(job_id, _STATUS_SUCCEEDED)
             self._delete_message(receipt_handle)
         except NoFaceDetectedError as exc:
             self._handle_failure(job_id, receipt_handle, "NO_FACE_DETECTED", exc)
@@ -138,7 +144,7 @@ class EnrollmentWorker:
             response = self.s3_client.get_object(Bucket=bucket, Key=key)
             return response["Body"].read()
         except (BotoCoreError, ClientError) as exc:
-            raise RuntimeError(f"S3 download failed: {exc}")
+            raise RuntimeError(f"S3 download failed: {exc}") from exc
 
     def _get_job_status(self, job_id: str) -> str | None:
         result = (
@@ -160,31 +166,21 @@ class EnrollmentWorker:
         error_message: str | None = None,
         error_code: str | None = None,
     ) -> None:
-        last_exception: Exception | None = None
-        for status_value in _enum_variants(status):
-            payload: dict[str, Any] = {"status": status_value}
-            if error_message is not None:
-                payload["error_message"] = error_message
-            if error_code is not None:
-                payload["error_code"] = error_code
+        payload: dict[str, Any] = {"status": status}
+        if error_message is not None:
+            payload["error_message"] = error_message
+        if error_code is not None:
+            payload["error_code"] = error_code
 
-            try:
-                result = (
-                    self.supabase
-                    .table("jobs")
-                    .update(payload)
-                    .eq("id", job_id)
-                    .execute()
-                )
-                if result.data is None:
-                    raise RuntimeError("Failed to update job status")
-                return
-            except Exception as exc:
-                last_exception = exc
-
-        if last_exception is not None:
-            raise last_exception
-        raise RuntimeError("Failed to update job status")
+        result = (
+            self.supabase
+            .table("jobs")
+            .update(payload)
+            .eq("id", job_id)
+            .execute()
+        )
+        if result.data is None:
+            raise RuntimeError(f"Failed to update job {job_id} status to {status}")
 
     def _extract_embedding(self, image_bytes: bytes) -> tuple[list[float], float]:
         """Extract embedding using InsightFace."""
@@ -231,17 +227,17 @@ class EnrollmentWorker:
         exc: Exception,
     ) -> None:
         error_message = f"{error_code}: {exc}"
-        LOGGER.exception("Failed to process job %s", job_id or "<unknown>")
+        logger.exception("Failed to process job %s", job_id or "<unknown>")
         if job_id:
             try:
                 self._update_job_status(
                     job_id,
-                    "failed",
+                    _STATUS_FAILED,
                     error_message=error_message,
                     error_code=error_code,
                 )
             except Exception as update_exc:
-                LOGGER.error("Failed to mark job %s as failed: %s", job_id, update_exc)
+                logger.error("Failed to mark job %s as failed: %s", job_id, update_exc)
         # Do not delete message on failure - allow SQS to retry or move to DLQ
 
     @staticmethod
@@ -249,28 +245,16 @@ class EnrollmentWorker:
         normalized = (value or "").strip().lower()
         if normalized in {"v0", "v1"}:
             return normalized
-        LOGGER.warning("Unknown WORKER_EMBEDDING_MODE=%s, defaulting to v1", value)
+        logger.warning("Unknown WORKER_EMBEDDING_MODE=%s, defaulting to v1", value)
         return "v1"
 
 
-
-def generate_stub_embedding(seed_value: str, size: int = 512) -> list[float]:
+def _generate_stub_embedding(seed_value: str, size: int = 512) -> list[float]:
     seed = int(hashlib.sha256(seed_value.encode("utf-8")).hexdigest(), 16) % (2**32)
     rng = random.Random(seed)
     values = [rng.uniform(-1.0, 1.0) for _ in range(size)]
     norm = math.sqrt(sum(value * value for value in values)) or 1.0
     return [value / norm for value in values]
-
-
-def _enum_variants(value: str) -> list[str]:
-    variants = [value.upper(), value, value.lower()]
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for item in variants:
-        if item not in seen:
-            seen.add(item)
-            deduped.append(item)
-    return deduped
 
 
 def main() -> None:

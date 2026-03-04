@@ -79,3 +79,19 @@ class ClassReadRepository:
 			raise
 		except Exception as e:
 			raise ClassReadError(f"Failed to fetch class details: {e}")
+
+	def instructor_has_class(self, instructor_id: UUID, class_id: UUID) -> bool:
+		"""Check whether a class belongs to an instructor."""
+		try:
+			result = (
+				self.client
+				.table("classes")
+				.select("id")
+				.eq("id", str(class_id))
+				.eq("instructor_id", str(instructor_id))
+				.limit(1)
+				.execute()
+			)
+			return bool(result.data)
+		except Exception as e:
+			raise ClassReadError(f"Failed to validate instructor class ownership: {e}")

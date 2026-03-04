@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
     s3_enrollment_bucket: str = "faceit-uploads-dev"
     s3_presigned_url_expiry: int = 3600  # 1 hour
+    s3_attendance_bucket: str = "faceit-uploads-dev"
+    s3_attendance_presigned_url_expiry: int = 300  # 5 minutes
 
     # AWS SQS configuration
     sqs_enrollment_queue_url: Optional[str] = None

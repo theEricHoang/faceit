@@ -14,6 +14,7 @@ from app.services.auth_service import (
     AuthService,
     LoginError,
     RefreshError,
+    SignupConflictError,
     SignupError,
 )
 
@@ -36,6 +37,11 @@ async def signup_instructor(
 
     try:
         return await auth_service.signup_instructor(request)
+    except SignupConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
     except SignupError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -59,6 +65,11 @@ async def signup_student(
 
     try:
         return await auth_service.signup_student(request)
+    except SignupConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
     except SignupError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

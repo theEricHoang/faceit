@@ -20,12 +20,14 @@ class StorageService:
         """Generate a pre-signed URL for uploading an enrollment photo."""
         key = f"enrollment-photos/{user_id}/{uuid.uuid4()}.{file_extension}"
 
+        content_type = "image/jpeg" if file_extension == "jpg" else f"image/{file_extension}"
+
         upload_url = self.s3_client.generate_presigned_url(
             "put_object",
             Params={
                 "Bucket": self.bucket,
                 "Key": key,
-                "ContentType": f"image/{file_extension}",
+                "ContentType": content_type,
             },
             ExpiresIn=self.expiry,
             HttpMethod="PUT",
@@ -47,12 +49,14 @@ class StorageService:
             f"instructor-{instructor_id}/{timestamp}-{uuid.uuid4()}.{file_extension}"
         )
 
+        content_type = "image/jpeg" if file_extension == "jpg" else f"image/{file_extension}"
+
         upload_url = self.s3_client.generate_presigned_url(
             "put_object",
             Params={
                 "Bucket": self.attendance_bucket,
                 "Key": key,
-                "ContentType": f"image/{file_extension}",
+                "ContentType": content_type,
             },
             ExpiresIn=self.attendance_expiry,
             HttpMethod="PUT",

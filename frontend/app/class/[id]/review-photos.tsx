@@ -11,8 +11,9 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAttendancePhotoStore } from '@/stores/attendance-photo-store';
+import { getAttendanceUploadUrl, uploadPhotoToS3 } from '@/services/classes-service';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const THUMBNAIL_GAP = 8;
@@ -23,6 +24,7 @@ const THUMBNAIL_SIZE =
 
 export default function ReviewPhotosScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ id: string }>();
   const photos = useAttendancePhotoStore((state) => state.photos);
   const removePhoto = useAttendancePhotoStore((state) => state.removePhoto);
   const clearPhotos = useAttendancePhotoStore((state) => state.clearPhotos);
@@ -34,28 +36,27 @@ export default function ReviewPhotosScreen() {
   };
 
   const handleSubmit = async () => {
-    if (photos.length === 0) return;
+    if (photos.length === 0 || !params.id) return;
 
     setUploading(true);
     setUploadProgress({ current: 0, total: photos.length });
 
     try {
-      // TODO: implement S3 upload flow
-      // For each photo:
-      // 1. Call getAttendanceUploadUrl(classId) to get presigned URL
-      // 2. Upload photo to S3 via PUT to the presigned URL
-      // 3. Update progress
-
       for (let i = 0; i < photos.length; i++) {
         setUploadProgress({ current: i + 1, total: photos.length });
-        // Simulate upload delay for now
-        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        // 1. Get a presigned upload URL from the backend
+        const { upload_url } = await getAttendanceUploadUrl(params.id);
+
+        // 2. Upload the photo directly to S3
+        await uploadPhotoToS3(upload_url, photos[i]);
       }
 
+      const count = photos.length;
       clearPhotos();
       Alert.alert(
         'Photos Submitted',
-        `${photos.length} photo${photos.length > 1 ? 's' : ''} submitted for attendance.`,
+        `${count} photo${count > 1 ? 's' : ''} uploaded for attendance.`,
         [{ text: 'OK', onPress: () => router.dismiss(2) }],
       );
     } catch (e: any) {

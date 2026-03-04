@@ -18,6 +18,7 @@ def _get_boto3_session() -> boto3.Session:
     return boto3.Session()
 
 
+@lru_cache
 def get_sqs_client():
     """Get a cached SQS client.
 
@@ -33,6 +34,7 @@ def get_sqs_client():
     )
 
 
+@lru_cache
 def get_s3_client():
     """Get a cached S3 client.
 

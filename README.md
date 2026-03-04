@@ -135,6 +135,7 @@ npx expo start
 cd backend/
 pytest tests/ -v
 pytest tests/services/test_auth_service.py -v  # Single file
+python tests/smoke_test_worker.py --user-id <existing-auth-user-uuid>  # Worker e2e smoke test
 ```
 
 **Frontend:**

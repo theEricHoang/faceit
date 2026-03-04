@@ -13,6 +13,7 @@ from app.schemas.user import (
     RefreshResponse,
 )
 from app.services.auth_service import LoginError, RefreshError, SignupError
+from app.services.auth_service import SignupConflictError
 from tests.conftest import TEST_EMAIL, TEST_USER_ID
 
 
@@ -85,6 +86,50 @@ class TestSignupInstructorRoute:
 
         assert response.status_code == 400
         assert "Email already registered" in response.json()["detail"]
+
+    def test_signup_instructor_conflict_returns_409(
+        self, test_client: TestClient, sample_signup_data: dict
+    ):
+        """Conflict errors should map to 409."""
+        with patch(
+            "app.api.routes.auth.AuthService"
+        ) as MockAuthService:
+            mock_instance = MockAuthService.return_value
+            mock_instance.signup_instructor = AsyncMock(
+                side_effect=SignupConflictError("Student number already exists")
+            )
+
+            response = test_client.post(
+                "/auth/signup/instructor",
+                json=sample_signup_data,
+            )
+
+        assert response.status_code == 409
+        assert "Student number already exists" in response.json()["detail"]
+
+
+class TestSignupStudentRoute:
+    """Tests for POST /auth/signup/student endpoint."""
+
+    def test_signup_student_conflict_returns_409(
+        self, test_client: TestClient, sample_student_signup_data: dict
+    ):
+        """Duplicate student number should return conflict."""
+        with patch(
+            "app.api.routes.auth.AuthService"
+        ) as MockAuthService:
+            mock_instance = MockAuthService.return_value
+            mock_instance.signup_student = AsyncMock(
+                side_effect=SignupConflictError("Student number already exists")
+            )
+
+            response = test_client.post(
+                "/auth/signup/student",
+                json=sample_student_signup_data,
+            )
+
+        assert response.status_code == 409
+        assert "Student number already exists" in response.json()["detail"]
 
 
 # ============================================================================

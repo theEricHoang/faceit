@@ -18,7 +18,7 @@ from app.utils.embedding_extractor import (
     NoFaceDetectedError,
 )
 
-LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 class EnrollmentWorker:
@@ -45,7 +45,7 @@ class EnrollmentWorker:
 
     def run(self) -> None:
         empty_polls = 0
-        LOGGER.info("Starting enrollment worker")
+        logger.info("Starting enrollment worker")
 
         while empty_polls < self.max_empty_polls:
             messages = self._receive_messages()
@@ -58,7 +58,7 @@ class EnrollmentWorker:
             for message in messages:
                 self._handle_message(message)
 
-        LOGGER.info("No messages after %s polls; exiting", self.max_empty_polls)
+        logger.info("No messages after %s polls; exiting", self.max_empty_polls)
 
     def _receive_messages(self) -> list[dict[str, Any]]:
         try:
@@ -68,7 +68,7 @@ class EnrollmentWorker:
                 WaitTimeSeconds=self.wait_time_seconds,
             )
         except (BotoCoreError, ClientError) as exc:
-            LOGGER.error("SQS receive failed: %s", exc)
+            logger.error("SQS receive failed: %s", exc)
             return []
 
         return response.get("Messages", [])
@@ -76,7 +76,7 @@ class EnrollmentWorker:
     def _handle_message(self, message: dict[str, Any]) -> None:
         receipt_handle = message.get("ReceiptHandle")
         if not receipt_handle:
-            LOGGER.error("Missing receipt handle; skipping message")
+            logger.error("Missing receipt handle; skipping message")
             return
 
         job_id: str | None = None
@@ -84,15 +84,15 @@ class EnrollmentWorker:
             payload = self._parse_message_body(message.get("Body"))
             job_id = payload.get("job_id")
             user_id = payload.get("user_id")
-            s3_bucket = payload.get("s3_bucket") or self.default_bucket
-            s3_key = payload.get("s3_key")
+            bucket = payload.get("bucket") or self.default_bucket
+            key = payload.get("key")
 
-            if not job_id or not user_id or not s3_key:
+            if not job_id or not user_id or not key:
                 raise ValueError("Missing required fields in message body")
 
             existing_status = self._get_job_status(job_id)
             if isinstance(existing_status, str) and existing_status.lower() == "succeeded":
-                LOGGER.info("Job already succeeded; deleting message %s", job_id)
+                logger.info("Job already succeeded; deleting message %s", job_id)
                 self._delete_message(receipt_handle)
                 return
 
@@ -221,7 +221,7 @@ class EnrollmentWorker:
                 ReceiptHandle=receipt_handle,
             )
         except (BotoCoreError, ClientError) as exc:
-            LOGGER.error("Failed to delete message: %s", exc)
+            logger.error("Failed to delete message: %s", exc)
 
     def _handle_failure(
         self,

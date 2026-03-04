@@ -164,13 +164,10 @@ class EnrollmentWorker:
         job_id: str,
         status: str,
         error_message: str | None = None,
-        error_code: str | None = None,
     ) -> None:
         payload: dict[str, Any] = {"status": status}
         if error_message is not None:
             payload["error_message"] = error_message
-        if error_code is not None:
-            payload["error_code"] = error_code
 
         result = (
             self.supabase
@@ -234,7 +231,6 @@ class EnrollmentWorker:
                     job_id,
                     _STATUS_FAILED,
                     error_message=error_message,
-                    error_code=error_code,
                 )
             except Exception as update_exc:
                 logger.error("Failed to mark job %s as failed: %s", job_id, update_exc)

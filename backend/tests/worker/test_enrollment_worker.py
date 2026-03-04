@@ -248,7 +248,7 @@ class TestHandleMessage:
         assert len(update_calls) == 2
         assert update_calls[0][0][0]["status"] == "RUNNING"
         assert update_calls[1][0][0]["status"] == "FAILED"
-        assert "WORKER_ERROR" in update_calls[1][0][0]["error_code"]
+        assert update_calls[1][0][0]["error_message"].startswith("WORKER_ERROR:")
 
         # Message should NOT be deleted on failure
         mock_sqs.delete_message.assert_not_called()
@@ -274,7 +274,7 @@ class TestHandleMessage:
         update_calls = jobs_table.update.call_args_list
         failed_call = update_calls[-1][0][0]
         assert failed_call["status"] == "FAILED"
-        assert failed_call["error_code"] == "NO_FACE_DETECTED"
+        assert failed_call["error_message"].startswith("NO_FACE_DETECTED:")
 
     @patch("app.worker.enrollment_worker.EmbeddingExtractor")
     def test_multiple_faces_detected_marks_specific_error(self, mock_extractor_cls):
@@ -297,7 +297,7 @@ class TestHandleMessage:
         update_calls = jobs_table.update.call_args_list
         failed_call = update_calls[-1][0][0]
         assert failed_call["status"] == "FAILED"
-        assert failed_call["error_code"] == "MULTIPLE_FACES_DETECTED"
+        assert failed_call["error_message"].startswith("MULTIPLE_FACES_DETECTED:")
 
 
 # ============================================================================

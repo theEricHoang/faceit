@@ -53,6 +53,44 @@ def mock_jwks_client():
         yield mock_client
 
 
+@ pytest.fixture
+def mock_supabase_client(monkeypatch):
+    """Return a fake Supabase client that can lookup a profile type.
+
+    Tests can modify `mock_supabase_client.profile_type` before calling the
+    dependency to control what type the database returns.
+    """
+    mock_client = MagicMock()
+
+    def table(name):
+        # only profiles table is used in these tests
+        mock_table = MagicMock()
+
+        def select(cols):
+            return mock_table
+
+        def eq(key, val):
+            return mock_table
+
+        def single():
+            return mock_table
+
+        def execute():
+            # return an object with .data containing the profile type
+            data = {"type": mock_client.profile_type} if getattr(mock_client, "profile_type", None) is not None else {}
+            return MagicMock(data=data)
+
+        mock_table.select = select
+        mock_table.eq = eq
+        mock_table.single = single
+        mock_table.execute = execute
+        return mock_table
+
+    mock_client.table.side_effect = table
+    monkeypatch.setattr("app.api.deps.get_supabase_client", lambda: mock_client)
+    return mock_client
+
+
 # ============================================================================
 # Test Helpers
 # ============================================================================
@@ -99,8 +137,9 @@ class TestGetCurrentUser:
     """Tests for get_current_user dependency."""
 
     @pytest.mark.asyncio
-    async def test_valid_instructor_token(self, mock_jwks_client):
-        """Test valid token returns CurrentUser with instructor type."""
+    async def test_valid_instructor_token(self, mock_jwks_client, mock_supabase_client):
+        """Token and database both indicate instructor."""
+        mock_supabase_client.profile_type = "instructor"
         token = create_test_token(user_type="instructor")
         credentials = MockCredentials(token)
 
@@ -111,8 +150,9 @@ class TestGetCurrentUser:
         assert user.type == ProfileType.INSTRUCTOR
 
     @pytest.mark.asyncio
-    async def test_valid_student_token(self, mock_jwks_client):
-        """Test valid token returns CurrentUser with student type."""
+    async def test_valid_student_token(self, mock_jwks_client, mock_supabase_client):
+        """Token and database both indicate student."""
+        mock_supabase_client.profile_type = "student"
         token = create_test_token(user_type="student")
         credentials = MockCredentials(token)
 
@@ -123,14 +163,27 @@ class TestGetCurrentUser:
         assert user.type == ProfileType.STUDENT
 
     @pytest.mark.asyncio
-    async def test_missing_user_type_defaults_to_student(self, mock_jwks_client):
-        """Test token without user_type defaults to student."""
+    async def test_missing_user_type_uses_db_type(self, mock_jwks_client, mock_supabase_client):
+        """When JWT lacks user_type, the DB value is used."""
+        # simulate instructor profile despite missing metadata
+        mock_supabase_client.profile_type = "instructor"
         token = create_test_token(user_type=None)
         credentials = MockCredentials(token)
 
         user = await get_current_user(credentials)
 
-        assert user.type == ProfileType.STUDENT
+        assert user.type == ProfileType.INSTRUCTOR
+
+    @pytest.mark.asyncio
+    async def test_db_type_overrides_jwt_metadata(self, mock_jwks_client, mock_supabase_client):
+        """If token metadata disagrees with database, use DB value."""
+        # database has instructor but token claims student
+        mock_supabase_client.profile_type = "instructor"
+        token = create_test_token(user_type="student")
+        credentials = MockCredentials(token)
+
+        user = await get_current_user(credentials)
+        assert user.type == ProfileType.INSTRUCTOR
 
     @pytest.mark.asyncio
     async def test_expired_token_returns_401(self, mock_jwks_client):

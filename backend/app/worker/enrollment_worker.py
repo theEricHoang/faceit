@@ -12,8 +12,19 @@ from supabase import Client
 from app.core.config import get_settings
 from app.db.aws import get_s3_client, get_sqs_client
 from app.db.supabase import get_supabase_client
+from app.utils.embedding_extractor import (
+    EmbeddingExtractor,
+    MultipleFacesDetectedError,
+    NoFaceDetectedError,
+)
 
 logger = logging.getLogger("uvicorn.error")
+
+# DB enum values for jobs.status
+_STATUS_PENDING = "PENDING"
+_STATUS_RUNNING = "RUNNING"
+_STATUS_SUCCEEDED = "SUCCEEDED"
+_STATUS_FAILED = "FAILED"
 
 
 class EnrollmentWorker:
@@ -36,6 +47,7 @@ class EnrollmentWorker:
         self.sqs_client = get_sqs_client()
         self.s3_client = get_s3_client()
         self.supabase = client or get_supabase_client()
+        self.embedding_mode = self._resolve_embedding_mode(settings.worker_embedding_mode)
 
     def run(self) -> None:
         empty_polls = 0
@@ -78,35 +90,43 @@ class EnrollmentWorker:
             payload = self._parse_message_body(message.get("Body"))
             job_id = payload.get("job_id")
             user_id = payload.get("user_id")
-            bucket = payload.get("bucket") or self.default_bucket
-            key = payload.get("key")
+            s3_bucket = payload.get("s3_bucket") or self.default_bucket
+            s3_key = payload.get("s3_key")
 
-            if not job_id or not user_id or not key:
+            if not job_id or not user_id or not s3_key:
                 raise ValueError("Missing required fields in message body")
 
             existing_status = self._get_job_status(job_id)
-            if isinstance(existing_status, str) and existing_status.lower() == "succeeded":
+            if existing_status == _STATUS_SUCCEEDED:
                 logger.info("Job already succeeded; deleting message %s", job_id)
                 self._delete_message(receipt_handle)
                 return
 
-            self._update_job_status(job_id, "running")
+            self._update_job_status(job_id, _STATUS_RUNNING)
 
-            self._download_image(bucket, key)
-            embedding = generate_stub_embedding(job_id)
+            image_bytes = self._download_image(s3_bucket, s3_key)
+            if self.embedding_mode == "v0":
+                embedding = _generate_stub_embedding(job_id)
+                quality_score = None
+                model = "worker-v0"
+            else:
+                embedding, quality_score = self._extract_embedding(image_bytes)
+                model = "insightface-worker-v1"
 
-            self._insert_embedding(user_id=user_id, embedding=embedding)
-            self._update_job_status(job_id, "succeeded")
+            self._insert_embedding(
+                user_id=user_id,
+                embedding=embedding,
+                model=model,
+                quality_score=quality_score,
+            )
+            self._update_job_status(job_id, _STATUS_SUCCEEDED)
             self._delete_message(receipt_handle)
+        except NoFaceDetectedError as exc:
+            self._handle_failure(job_id, receipt_handle, "NO_FACE_DETECTED", exc)
+        except MultipleFacesDetectedError as exc:
+            self._handle_failure(job_id, receipt_handle, "MULTIPLE_FACES_DETECTED", exc)
         except Exception as exc:
-            error_message = f"WORKER_ERROR: {exc}"
-            logger.exception("Failed to process job %s", job_id or "<unknown>")
-            if job_id:
-                try:
-                    self._update_job_status(job_id, "failed", error_message=error_message)
-                except Exception as update_exc:
-                    logger.error("Failed to mark job %s as failed: %s", job_id, update_exc)
-            # Do not delete message on failure - allow SQS to retry or move to DLQ
+            self._handle_failure(job_id, receipt_handle, "WORKER_ERROR", exc)
 
     def _parse_message_body(self, body: str | None) -> dict[str, Any]:
         if not body:
@@ -119,12 +139,12 @@ class EnrollmentWorker:
             raise ValueError("Message body must be a JSON object")
         return payload
 
-    def _download_image(self, bucket: str, key: str) -> None:
+    def _download_image(self, bucket: str, key: str) -> bytes:
         try:
             response = self.s3_client.get_object(Bucket=bucket, Key=key)
-            _ = response["Body"].read()
+            return response["Body"].read()
         except (BotoCoreError, ClientError) as exc:
-            raise RuntimeError(f"S3 download failed: {exc}")
+            raise RuntimeError(f"S3 download failed: {exc}") from exc
 
     def _get_job_status(self, job_id: str) -> str | None:
         result = (
@@ -140,38 +160,43 @@ class EnrollmentWorker:
         return result.data.get("status")
 
     def _update_job_status(
-        self, job_id: str, status: str, error_message: str | None = None
+        self,
+        job_id: str,
+        status: str,
+        error_message: str | None = None,
     ) -> None:
-        last_exception: Exception | None = None
-        for status_value in _enum_variants(status):
-            payload: dict[str, Any] = {"status": status_value}
-            if error_message is not None:
-                payload["error_message"] = error_message
+        payload: dict[str, Any] = {"status": status}
+        if error_message is not None:
+            payload["error_message"] = error_message
 
-            try:
-                result = (
-                    self.supabase
-                    .table("jobs")
-                    .update(payload)
-                    .eq("id", job_id)
-                    .execute()
-                )
-                if result.data is None:
-                    raise RuntimeError("Failed to update job status")
-                return
-            except Exception as exc:
-                last_exception = exc
+        result = (
+            self.supabase
+            .table("jobs")
+            .update(payload)
+            .eq("id", job_id)
+            .execute()
+        )
+        if result.data is None:
+            raise RuntimeError(f"Failed to update job {job_id} status to {status}")
 
-        if last_exception is not None:
-            raise last_exception
-        raise RuntimeError("Failed to update job status")
+    def _extract_embedding(self, image_bytes: bytes) -> tuple[list[float], float]:
+        """Extract embedding using InsightFace."""
+        extractor = EmbeddingExtractor.get_instance()
+        embedding, quality_score = extractor.extract_embedding(image_bytes)
+        return embedding, quality_score
 
-    def _insert_embedding(self, user_id: str, embedding: list[float]) -> None:
+    def _insert_embedding(
+        self,
+        user_id: str,
+        embedding: list[float],
+        model: str,
+        quality_score: float | None,
+    ) -> None:
         payload = {
             "user_id": user_id,
-            "model": "stub-embedding-v0",
+            "model": model,
             "embedding": embedding,
-            "quality_score": None,
+            "quality_score": quality_score,
         }
         result = (
             self.supabase
@@ -191,24 +216,41 @@ class EnrollmentWorker:
         except (BotoCoreError, ClientError) as exc:
             logger.error("Failed to delete message: %s", exc)
 
+    def _handle_failure(
+        self,
+        job_id: str | None,
+        receipt_handle: str,
+        error_code: str,
+        exc: Exception,
+    ) -> None:
+        error_message = f"{error_code}: {exc}"
+        logger.exception("Failed to process job %s", job_id or "<unknown>")
+        if job_id:
+            try:
+                self._update_job_status(
+                    job_id,
+                    _STATUS_FAILED,
+                    error_message=error_message,
+                )
+            except Exception as update_exc:
+                logger.error("Failed to mark job %s as failed: %s", job_id, update_exc)
+        # Do not delete message on failure - allow SQS to retry or move to DLQ
 
-def generate_stub_embedding(seed_value: str, size: int = 512) -> list[float]:
+    @staticmethod
+    def _resolve_embedding_mode(value: str) -> str:
+        normalized = (value or "").strip().lower()
+        if normalized in {"v0", "v1"}:
+            return normalized
+        logger.warning("Unknown WORKER_EMBEDDING_MODE=%s, defaulting to v1", value)
+        return "v1"
+
+
+def _generate_stub_embedding(seed_value: str, size: int = 512) -> list[float]:
     seed = int(hashlib.sha256(seed_value.encode("utf-8")).hexdigest(), 16) % (2**32)
     rng = random.Random(seed)
     values = [rng.uniform(-1.0, 1.0) for _ in range(size)]
     norm = math.sqrt(sum(value * value for value in values)) or 1.0
     return [value / norm for value in values]
-
-
-def _enum_variants(value: str) -> list[str]:
-    variants = [value.upper(), value, value.lower()]
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for item in variants:
-        if item not in seen:
-            seen.add(item)
-            deduped.append(item)
-    return deduped
 
 
 def main() -> None:

@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     # Worker runtime configuration
     worker_max_empty_polls: int = 3
     worker_poll_sleep_seconds: int = 2
+    worker_embedding_mode: str = "v1"
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -18,9 +18,8 @@ def _get_boto3_session() -> boto3.Session:
     return boto3.Session()
 
 
-@lru_cache
 def get_sqs_client():
-    """Get a cached SQS client.
+    """Get an SQS client.
 
     Uses a module-level cached session to avoid repeatedly loading
     AWS credentials and config on every request.
@@ -34,9 +33,8 @@ def get_sqs_client():
     )
 
 
-@lru_cache
 def get_s3_client():
-    """Get a cached S3 client.
+    """Get an S3 client.
 
     Uses a module-level cached session to avoid repeatedly loading
     AWS credentials and config on every request.
@@ -47,4 +45,18 @@ def get_s3_client():
         "s3",
         region_name=settings.aws_region,
         config=Config(signature_version="s3v4"),
+    )
+
+
+def get_sts_client():
+    """Get an STS client.
+
+    Uses a module-level cached session to avoid repeatedly loading
+    AWS credentials and config on every request.
+    """
+    settings = get_settings()
+    session = _get_boto3_session()
+    return session.client(
+        "sts",
+        region_name=settings.aws_region,
     )

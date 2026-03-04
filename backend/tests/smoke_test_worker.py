@@ -1,19 +1,20 @@
 import argparse
 import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-import boto3
 from botocore.exceptions import BotoCoreError, ClientError, TokenRetrievalError
 from postgrest.exceptions import APIError
 
 from app.core.config import get_settings
+from app.db.aws import get_s3_client, get_sqs_client, get_sts_client
 from app.db.supabase import get_supabase_client
 from app.worker.enrollment_worker import EnrollmentWorker
 
-LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 @dataclass
@@ -24,7 +25,7 @@ class SmokeResult:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run end-to-end smoke test for enrollment worker v0."
+        description="Run end-to-end smoke test for enrollment worker (v0 or v1)."
     )
     parser.add_argument(
         "--user-id",
@@ -42,6 +43,12 @@ def parse_args() -> argparse.Namespace:
         help="Optional S3 bucket override (defaults to S3_ENROLLMENT_BUCKET).",
     )
     parser.add_argument(
+        "--embedding-mode",
+        default="v0",
+        choices=["v0", "v1"],
+        help="Worker embedding mode to test (v0 uses stub embeddings, v1 uses InsightFace).",
+    )
+    parser.add_argument(
         "--skip-failure-path",
         action="store_true",
         help="Skip the bad-key failure path test.",
@@ -53,7 +60,7 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def upload_dummy_image(s3_client: boto3.client, bucket: str, key: str) -> None:
+def upload_dummy_image(s3_client, bucket: str, key: str) -> None:
     jpeg_like_content = b"\xff\xd8\xff\xe0SMOKE_TEST_FACEIT\xff\xd9"
     s3_client.put_object(
         Bucket=bucket,
@@ -118,13 +125,18 @@ def get_job(supabase, job_id: str) -> dict:
     return result.data
 
 
-def count_recent_stub_embeddings(supabase, user_id: str, since_iso: str) -> int:
+def count_recent_embeddings(
+    supabase,
+    user_id: str,
+    since_iso: str,
+    model: str,
+) -> int:
     result = (
         supabase
         .table("face_embeddings")
         .select("id", count="exact")
         .eq("user_id", user_id)
-        .eq("model", "stub-embedding-v0")
+        .eq("model", model)
         .gte("created_at", since_iso)
         .execute()
     )
@@ -158,7 +170,7 @@ def resolve_user_lookup_mode(supabase) -> str:
         error = exc.json() if callable(getattr(exc, "json", None)) else {}
         code = error.get("code")
         if code == "PGRST106":
-            LOGGER.warning(
+            logger.warning(
                 "auth schema is not exposed via PostgREST; using public.profiles for user existence checks"
             )
             return "profiles"
@@ -202,27 +214,66 @@ def assert_user_exists(supabase, user_id: str, label: str, lookup_mode: str) -> 
     raise RuntimeError(f"Unknown user lookup mode: {lookup_mode}")
 
 
+def cleanup_test_artifacts(
+    supabase,
+    s3_client,
+    bucket: str,
+    job_ids: list[str],
+    s3_keys: list[str],
+    user_id: str,
+    started_at: str,
+    model: str,
+) -> None:
+    """Best-effort cleanup of test artifacts created during the smoke test."""
+    for job_id in job_ids:
+        try:
+            supabase.table("jobs").delete().eq("id", job_id).execute()
+        except Exception as exc:
+            logger.warning("Failed to clean up job %s: %s", job_id, exc)
+
+    try:
+        result = (
+            supabase
+            .table("face_embeddings")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("model", model)
+            .gte("created_at", started_at)
+            .execute()
+        )
+        if result.data:
+            for row in result.data:
+                try:
+                    supabase.table("face_embeddings").delete().eq("id", row["id"]).execute()
+                except Exception as exc:
+                    logger.warning("Failed to clean up embedding %s: %s", row["id"], exc)
+    except Exception as exc:
+        logger.warning("Failed to query embeddings for cleanup: %s", exc)
+
+    for key in s3_keys:
+        try:
+            s3_client.delete_object(Bucket=bucket, Key=key)
+        except Exception as exc:
+            logger.warning("Failed to clean up S3 object s3://%s/%s: %s", bucket, key, exc)
+
+
 def run_smoke_test(
     user_id: str,
     owner_user_id: str | None,
     bucket_override: str | None,
     skip_failure_path: bool,
+    embedding_mode: str,
 ) -> int:
     settings = get_settings()
     supabase = get_supabase_client()
 
-    if settings.aws_profile:
-        session = boto3.Session(profile_name=settings.aws_profile)
-    else:
-        session = boto3.Session()
-
-    s3_client = session.client("s3", region_name=settings.aws_region)
-    sqs_client = session.client("sqs", region_name=settings.aws_region)
-    sts_client = session.client("sts", region_name=settings.aws_region)
+    s3_client = get_s3_client()
+    sqs_client = get_sqs_client()
+    sts_client = get_sts_client()
 
     try:
         identity = sts_client.get_caller_identity()
-        LOGGER.info("Using AWS account %s", identity.get("Account"))
+        logger.info("Using AWS account %s", identity.get("Account"))
     except TokenRetrievalError as exc:
         raise RuntimeError(
             "AWS SSO token expired. Run 'aws sso login --profile dev' (or your AWS_PROFILE), then rerun the smoke test."
@@ -245,103 +296,117 @@ def run_smoke_test(
     happy_key = f"enrollment-photos/smoke-tests/{user_id}/{run_id}.jpg"
     bad_key = f"enrollment-photos/smoke-tests/{user_id}/{run_id}-missing.jpg"
 
-    LOGGER.info("Creating test object in S3: s3://%s/%s", bucket, happy_key)
-    upload_dummy_image(s3_client, bucket, happy_key)
-
-    LOGGER.info("Creating jobs in Supabase")
-    create_job(supabase, happy_job_id, owner_id, bucket, happy_key)
+    model = "worker-v0" if embedding_mode == "v0" else "insightface-worker-v1"
+    job_ids = [happy_job_id]
+    s3_keys = [happy_key]
     if not skip_failure_path:
-        create_job(supabase, bad_job_id, owner_id, bucket, bad_key)
+        job_ids.append(bad_job_id)
 
-    LOGGER.info("Queue depth before enqueue: %s", queue_depth(sqs_client, queue_url))
+    try:
+        logger.info("Creating test object in S3: s3://%s/%s", bucket, happy_key)
+        upload_dummy_image(s3_client, bucket, happy_key)
 
-    LOGGER.info("Enqueueing happy-path job")
-    send_job_message(
-        sqs_client,
-        queue_url,
-        {
-            "job_id": happy_job_id,
-            "user_id": user_id,
-            "s3_bucket": bucket,
-            "s3_key": happy_key,
-        },
-    )
+        logger.info("Creating jobs in Supabase")
+        create_job(supabase, happy_job_id, owner_id, bucket, happy_key)
+        if not skip_failure_path:
+            create_job(supabase, bad_job_id, owner_id, bucket, bad_key)
 
-    if not skip_failure_path:
-        LOGGER.info("Enqueueing failure-path job")
+        logger.info("Queue depth before enqueue: %s", queue_depth(sqs_client, queue_url))
+
+        logger.info("Enqueueing happy-path job")
         send_job_message(
             sqs_client,
             queue_url,
             {
-                "job_id": bad_job_id,
+                "job_id": happy_job_id,
                 "user_id": user_id,
                 "s3_bucket": bucket,
-                "s3_key": bad_key,
+                "s3_key": happy_key,
             },
         )
 
-    LOGGER.info("Running worker to drain queue")
-    worker = EnrollmentWorker(client=supabase)
-    worker.run()
-
-    LOGGER.info("Queue depth after worker: %s", queue_depth(sqs_client, queue_url))
-
-    results: list[SmokeResult] = []
-
-    happy_job = get_job(supabase, happy_job_id)
-    happy_status = str(happy_job.get("status") or "").lower()
-    if happy_status == "succeeded":
-        results.append(SmokeResult(True, "Happy path job marked succeeded"))
-    else:
-        results.append(
-            SmokeResult(False, f"Happy path job status expected succeeded, got {happy_job.get('status')}")
-        )
-
-    embeddings_count = count_recent_stub_embeddings(supabase, user_id, started_at)
-    if embeddings_count >= 1:
-        results.append(
-            SmokeResult(True, f"At least one stub embedding created since test start (count={embeddings_count})")
-        )
-    else:
-        results.append(SmokeResult(False, "No stub embedding created by worker"))
-
-    if not skip_failure_path:
-        bad_job = get_job(supabase, bad_job_id)
-        bad_status = bad_job.get("status")
-        bad_status_normalized = str(bad_status or "").lower()
-        bad_error = bad_job.get("error_message") or ""
-        if bad_status_normalized == "failed":
-            results.append(SmokeResult(True, "Failure path job marked failed"))
-        else:
-            results.append(
-                SmokeResult(False, f"Failure path status expected failed, got {bad_status}")
+        if not skip_failure_path:
+            logger.info("Enqueueing failure-path job")
+            send_job_message(
+                sqs_client,
+                queue_url,
+                {
+                    "job_id": bad_job_id,
+                    "user_id": user_id,
+                    "s3_bucket": bucket,
+                    "s3_key": bad_key,
+                },
             )
 
-        if bad_error.startswith("WORKER_ERROR:"):
-            results.append(SmokeResult(True, "Failure path stored error code prefix in error_message"))
+        logger.info("Running worker to drain queue (embedding_mode=%s)", embedding_mode)
+        worker = EnrollmentWorker(client=supabase)
+        worker.run()
+
+        logger.info("Queue depth after worker: %s", queue_depth(sqs_client, queue_url))
+
+        results: list[SmokeResult] = []
+
+        happy_job = get_job(supabase, happy_job_id)
+        happy_status = str(happy_job.get("status") or "")
+        if happy_status == "SUCCEEDED":
+            results.append(SmokeResult(True, "Happy path job marked SUCCEEDED"))
         else:
             results.append(
-                SmokeResult(False, f"Failure path error_message missing WORKER_ERROR prefix: {bad_error}")
+                SmokeResult(False, f"Happy path job status expected SUCCEEDED, got {happy_status}")
             )
 
-    print("\n=== Smoke Test Results ===")
-    for item in results:
-        marker = "PASS" if item.passed else "FAIL"
-        print(f"[{marker}] {item.message}")
+        embeddings_count = count_recent_embeddings(supabase, user_id, started_at, model)
+        if embeddings_count >= 1:
+            results.append(
+                SmokeResult(True, f"At least one embedding created since test start (count={embeddings_count})")
+            )
+        else:
+            results.append(SmokeResult(False, "No embedding created by worker"))
 
-    print("\n=== Test Artifact IDs ===")
-    print(f"happy_job_id={happy_job_id}")
-    if not skip_failure_path:
-        print(f"bad_job_id={bad_job_id}")
-    print(f"happy_s3_key={happy_key}")
+        if not skip_failure_path:
+            bad_job = get_job(supabase, bad_job_id)
+            bad_status = str(bad_job.get("status") or "")
+            bad_error = bad_job.get("error_message") or ""
+            if bad_status == "FAILED":
+                results.append(SmokeResult(True, "Failure path job marked FAILED"))
+            else:
+                results.append(
+                    SmokeResult(False, f"Failure path status expected FAILED, got {bad_status}")
+                )
 
-    failures = [item for item in results if not item.passed]
-    return 1 if failures else 0
+            if bad_error.startswith("WORKER_ERROR:"):
+                results.append(SmokeResult(True, "Failure path stored error code prefix in error_message"))
+            else:
+                results.append(
+                    SmokeResult(False, f"Failure path error_message missing WORKER_ERROR prefix: {bad_error}")
+                )
+
+        print("\n=== Smoke Test Results ===")
+        for item in results:
+            marker = "PASS" if item.passed else "FAIL"
+            print(f"[{marker}] {item.message}")
+
+        print("\n=== Test Artifact IDs ===")
+        print(f"happy_job_id={happy_job_id}")
+        if not skip_failure_path:
+            print(f"bad_job_id={bad_job_id}")
+        print(f"happy_s3_key={happy_key}")
+
+        failures = [item for item in results if not item.passed]
+        return 1 if failures else 0
+    finally:
+        logger.info("Cleaning up test artifacts")
+        cleanup_test_artifacts(
+            supabase, s3_client, bucket, job_ids, s3_keys, user_id, started_at, model,
+        )
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = parse_args()
+
+    os.environ["WORKER_EMBEDDING_MODE"] = args.embedding_mode
+    get_settings.cache_clear()
 
     try:
         exit_code = run_smoke_test(
@@ -349,9 +414,10 @@ def main() -> None:
             owner_user_id=args.owner_user_id,
             bucket_override=args.bucket,
             skip_failure_path=args.skip_failure_path,
+            embedding_mode=args.embedding_mode,
         )
     except (BotoCoreError, ClientError, RuntimeError, ValueError, TokenRetrievalError) as exc:
-        LOGGER.exception("Smoke test failed with error: %s", exc)
+        logger.exception("Smoke test failed with error: %s", exc)
         raise SystemExit(1)
 
     raise SystemExit(exit_code)

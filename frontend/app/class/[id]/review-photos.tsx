@@ -8,6 +8,7 @@ import {
   Alert,
   Dimensions,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,6 +31,7 @@ export default function ReviewPhotosScreen() {
   const clearPhotos = useAttendancePhotoStore((state) => state.clearPhotos);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
 
   const handleAddMore = () => {
     router.back();
@@ -74,6 +76,21 @@ export default function ReviewPhotosScreen() {
     }
   };
 
+  const handlePreviewRemove = () => {
+    if (selectedPhotoIndex === null) return;
+    const uri = photos[selectedPhotoIndex];
+    removePhoto(uri);
+    if (photos.length <= 1) {
+      // Last photo removed: close modal and go back to camera
+      setSelectedPhotoIndex(null);
+      router.back();
+    } else if (selectedPhotoIndex >= photos.length - 1) {
+      // Was last in list: step back
+      setSelectedPhotoIndex(selectedPhotoIndex - 1);
+    }
+    // Otherwise stay at same index (next photo slides in)
+  };
+
   return (
     <View style={styles.container}>
       {/* Header summary */}
@@ -84,13 +101,13 @@ export default function ReviewPhotosScreen() {
             {photos.length} photo{photos.length !== 1 ? 's' : ''} ready
           </Text>
         </View>
-        <Text style={styles.headerSubtext}>Tap the X on a photo to remove it</Text>
+        <Text style={styles.headerSubtext}>Tap a photo to preview, or X to remove</Text>
       </View>
 
       {/* Photo grid */}
       <ScrollView contentContainerStyle={styles.grid}>
         {photos.map((uri, index) => (
-          <View key={uri} style={styles.thumbnailContainer}>
+          <Pressable key={uri} style={styles.thumbnailContainer} onPress={() => setSelectedPhotoIndex(index)}>
             <Image source={{ uri }} style={styles.thumbnail} contentFit="cover" />
             <Pressable
               style={styles.removeButton}
@@ -102,7 +119,7 @@ export default function ReviewPhotosScreen() {
             <View style={styles.photoIndex}>
               <Text style={styles.photoIndexText}>{index + 1}</Text>
             </View>
-          </View>
+          </Pressable>
         ))}
       </ScrollView>
 
@@ -117,6 +134,58 @@ export default function ReviewPhotosScreen() {
           </View>
         </View>
       )}
+
+      {/* Photo preview modal */}
+      <Modal
+        visible={selectedPhotoIndex !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedPhotoIndex(null)}
+      >
+        <View style={styles.previewOverlay}>
+          {/* Preview top bar */}
+          <View style={styles.previewTopBar}>
+            <Pressable style={styles.previewTopButton} onPress={() => setSelectedPhotoIndex(null)}>
+              <Ionicons name="close" size={26} color="#fff" />
+            </Pressable>
+            <Text style={styles.previewCounter}>
+              {selectedPhotoIndex !== null ? selectedPhotoIndex + 1 : 0} of {photos.length}
+            </Text>
+            <Pressable style={styles.previewTopButton} onPress={handlePreviewRemove}>
+              <Ionicons name="trash-outline" size={22} color="#dc2626" />
+            </Pressable>
+          </View>
+
+          {/* Preview image */}
+          <View style={styles.previewImageContainer}>
+            {selectedPhotoIndex !== null && (
+              <Image
+                source={{ uri: photos[selectedPhotoIndex] }}
+                style={styles.previewImage}
+                contentFit="contain"
+              />
+            )}
+          </View>
+
+          {/* Preview navigation arrows */}
+          <View style={styles.previewNavBar}>
+            <Pressable
+              style={[styles.previewNavButton, selectedPhotoIndex === 0 && styles.disabledButton]}
+              onPress={() => setSelectedPhotoIndex((i) => (i !== null ? i - 1 : null))}
+              disabled={selectedPhotoIndex === 0}
+            >
+              <Ionicons name="chevron-back" size={28} color="#fff" />
+            </Pressable>
+            <Pressable
+              style={[styles.previewNavButton, selectedPhotoIndex === photos.length - 1 && styles.disabledButton]}
+              onPress={() => setSelectedPhotoIndex((i) => (i !== null ? i + 1 : null))}
+              disabled={selectedPhotoIndex === photos.length - 1}
+            >
+              <Ionicons name="chevron-forward" size={28} color="#fff" />
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       {/* Bottom actions */}
       <View style={styles.bottomBar}>
@@ -272,5 +341,54 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.4,
+  },
+  previewOverlay: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  previewTopBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 54,
+    paddingBottom: 12,
+  },
+  previewTopButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewCounter: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  previewImageContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewNavBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingBottom: 48,
+    paddingTop: 12,
+  },
+  previewNavButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

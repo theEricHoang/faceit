@@ -1,11 +1,13 @@
 import logging
 import re
+from uuid import UUID
 
 from supabase import Client
 
 from app.core.config import get_settings
 from app.db.supabase import get_supabase_client
-from app.schemas.job import CreateJobRequest, CreateJobResponse
+from app.models.job import Job, JobKind, JobStatus
+from app.schemas.job import CreateJobRequest, CreateJobResponse, JobStatusResponse
 from app.services.queue_service import QueueService, QueueServiceError
 
 logger = logging.getLogger("uvicorn.error")
@@ -24,8 +26,12 @@ class CreateJobError(JobServiceError):
     pass
 
 
+class JobNotFoundError(JobServiceError):
+    pass
+
+
 class JobService:
-    """Handles creation of async processing jobs."""
+    """Handles creation and querying of async processing jobs."""
 
     def __init__(self, client: Client | None = None, queue_service: QueueService | None = None):
         self.client = client or get_supabase_client()
@@ -74,8 +80,8 @@ class JobService:
                 self.client.table("jobs")
                 .insert(
                     {
-                        "kind": request.kind,
-                        "status": "PENDING",
+                        "kind": JobKind.ENROLLMENT,
+                        "status": JobStatus.PENDING,
                         "owner_user_id": user_id,
                         "s3_bucket": request.bucket,
                         "s3_key": request.key,
@@ -111,6 +117,49 @@ class JobService:
             if job_id:
                 self._rollback_job(job_id)
             raise CreateJobError(f"Failed to create job: {str(e)}") from e
+
+    async def get_job_status(
+        self, job_id: UUID, owner_user_id: UUID
+    ) -> JobStatusResponse:
+        """Get the status of a job owned by the given user.
+
+        Queries by both job ID and owner to enforce access control at
+        the data layer — a missing row is indistinguishable from an
+        unauthorized read.
+
+        Args:
+            job_id: The job's UUID.
+            owner_user_id: The authenticated user's UUID.
+
+        Returns:
+            JobStatusResponse with current status, kind, error_message, and updated_at.
+
+        Raises:
+            JobNotFoundError: If the job does not exist or does not belong to the user.
+        """
+        try:
+            result = (
+                self.client.table("jobs")
+                .select("id, kind, status, error_message, updated_at")
+                .eq("id", str(job_id))
+                .eq("owner_user_id", str(owner_user_id))
+                .single()
+                .execute()
+            )
+        except Exception as e:
+            raise JobNotFoundError(f"Job {job_id} not found") from e
+
+        if not result.data:
+            raise JobNotFoundError(f"Job {job_id} not found")
+
+        row = result.data
+        return JobStatusResponse(
+            job_id=row["id"],
+            status=row["status"],
+            kind=row["kind"],
+            error_message=row["error_message"],
+            updated_at=row["updated_at"],
+        )
 
     def _rollback_job(self, job_id: str) -> None:
         """Delete a jobs row on failure. Best-effort; errors are logged but not raised."""

@@ -72,7 +72,7 @@ class JobService:
                 raise CreateJobError(
                     "Invalid key format: must match enrollments/<user_id>/<job_id>.<ext>"
                 )
-            if not request.key.startswith(f"enrollment-photos/{user_id}/"):
+            if not request.key.startswith(f"enrollments/{user_id}/"):
                 raise CreateJobError("Key does not belong to the authenticated user")
 
             # Step 1: Insert job row

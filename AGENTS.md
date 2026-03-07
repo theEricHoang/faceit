@@ -23,7 +23,8 @@ pyenv virtualenv 3.12.2 backend
 pip install -r requirements.txt
 
 # Development
-uvicorn app.main:app --host 0.0.0.0 --reload    # Start dev server
+uvicorn app.main:app --host 0.0.0.0 --reload    # Start API server (separate from worker)
+python -m app.worker.enrollment_worker           # Start enrollment worker (separate process)
 
 # Testing
 pytest tests/ -v                                 # Run all tests
@@ -31,6 +32,8 @@ pytest tests/services/test_auth_service.py -v   # Run single test file
 pytest tests/api/test_auth.py::test_signup -v   # Run single test
 pytest tests/ --cov=app --cov-report=term-missing  # With coverage
 ```
+
+> **Note:** The FastAPI server and the enrollment worker are **separate processes**. `POST /jobs` inserts a DB row and enqueues an SQS message; the worker picks it up on its next poll cycle. Run both if you need end-to-end job processing locally.
 
 ### Environment Setup
 - **Backend**: Copy `backend/.env.example` to `backend/.env` (requires `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_JWT_SECRET`)

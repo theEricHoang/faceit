@@ -12,6 +12,7 @@ from supabase import Client
 from app.core.config import get_settings
 from app.db.aws import get_s3_client, get_sqs_client
 from app.db.supabase import get_supabase_client
+from app.models.job import JobStatus
 from app.utils.embedding_extractor import (
     EmbeddingExtractor,
     MultipleFacesDetectedError,
@@ -19,12 +20,6 @@ from app.utils.embedding_extractor import (
 )
 
 logger = logging.getLogger("uvicorn.error")
-
-# DB enum values for jobs.status
-_STATUS_PENDING = "PENDING"
-_STATUS_RUNNING = "RUNNING"
-_STATUS_SUCCEEDED = "SUCCEEDED"
-_STATUS_FAILED = "FAILED"
 
 
 class EnrollmentWorker:
@@ -53,7 +48,7 @@ class EnrollmentWorker:
         empty_polls = 0
         logger.info("Starting enrollment worker")
 
-        while empty_polls < self.max_empty_polls:
+        while self.max_empty_polls <= 0 or empty_polls < self.max_empty_polls:
             messages = self._receive_messages()
             if not messages:
                 empty_polls += 1
@@ -97,12 +92,12 @@ class EnrollmentWorker:
                 raise ValueError("Missing required fields in message body")
 
             existing_status = self._get_job_status(job_id)
-            if existing_status == _STATUS_SUCCEEDED:
+            if existing_status == JobStatus.SUCCEEDED:
                 logger.info("Job already succeeded; deleting message %s", job_id)
                 self._delete_message(receipt_handle)
                 return
 
-            self._update_job_status(job_id, _STATUS_RUNNING)
+            self._update_job_status(job_id, JobStatus.RUNNING)
 
             image_bytes = self._download_image(s3_bucket, s3_key)
             if self.embedding_mode == "v0":
@@ -119,7 +114,7 @@ class EnrollmentWorker:
                 model=model,
                 quality_score=quality_score,
             )
-            self._update_job_status(job_id, _STATUS_SUCCEEDED)
+            self._update_job_status(job_id, JobStatus.SUCCEEDED)
             self._delete_message(receipt_handle)
         except NoFaceDetectedError as exc:
             self._handle_failure(job_id, receipt_handle, "NO_FACE_DETECTED", exc)
@@ -229,7 +224,7 @@ class EnrollmentWorker:
             try:
                 self._update_job_status(
                     job_id,
-                    _STATUS_FAILED,
+                    JobStatus.FAILED,
                     error_message=error_message,
                 )
             except Exception as update_exc:

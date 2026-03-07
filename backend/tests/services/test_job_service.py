@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 
 from app.schemas.job import CreateJobRequest
-from app.services.job_service import JobService, CreateJobError
+from app.services.job_service import JobService, CreateJobError, JobNotFoundError
 from app.services.queue_service import QueueServiceError
 
 
@@ -187,3 +187,138 @@ class TestCreateEnrollmentJobValidation:
             await service.create_enrollment_job(
                 make_request(key=key), TEST_USER_ID
             )
+
+
+class TestGetJobStatus:
+    """Tests for JobService.get_job_status."""
+
+    @pytest.mark.asyncio
+    async def test_returns_job_status_response(self):
+        """Successful query returns a JobStatusResponse with correct fields."""
+        mock_client = MagicMock()
+        table = MagicMock()
+        select_chain = MagicMock()
+
+        mock_client.table.return_value = table
+        table.select.return_value = select_chain
+        select_chain.eq.return_value = select_chain
+        select_chain.single.return_value = select_chain
+        select_chain.execute.return_value = MagicMock(
+            data={
+                "id": TEST_JOB_ID,
+                "kind": "ENROLLMENT",
+                "status": "SUCCEEDED",
+                "error_message": None,
+                "updated_at": "2026-03-04T12:00:00Z",
+            }
+        )
+
+        service = JobService(client=mock_client, queue_service=MagicMock())
+        result = await service.get_job_status(
+            UUID(TEST_JOB_ID), UUID(TEST_USER_ID)
+        )
+
+        assert result.job_id == UUID(TEST_JOB_ID)
+        assert result.status == "SUCCEEDED"
+        assert result.kind == "ENROLLMENT"
+        assert result.error_message is None
+
+    @pytest.mark.asyncio
+    async def test_failed_job_includes_error_message(self):
+        """A FAILED job should include the error_message."""
+        mock_client = MagicMock()
+        table = MagicMock()
+        select_chain = MagicMock()
+
+        mock_client.table.return_value = table
+        table.select.return_value = select_chain
+        select_chain.eq.return_value = select_chain
+        select_chain.single.return_value = select_chain
+        select_chain.execute.return_value = MagicMock(
+            data={
+                "id": TEST_JOB_ID,
+                "kind": "ENROLLMENT",
+                "status": "FAILED",
+                "error_message": "NO_FACE_DETECTED: no face found in image",
+                "updated_at": "2026-03-04T12:00:00Z",
+            }
+        )
+
+        service = JobService(client=mock_client, queue_service=MagicMock())
+        result = await service.get_job_status(
+            UUID(TEST_JOB_ID), UUID(TEST_USER_ID)
+        )
+
+        assert result.status == "FAILED"
+        assert result.error_message == "NO_FACE_DETECTED: no face found in image"
+
+    @pytest.mark.asyncio
+    async def test_queries_with_both_job_id_and_owner(self):
+        """Should filter by both id and owner_user_id in the query."""
+        mock_client = MagicMock()
+        table = MagicMock()
+        select_chain = MagicMock()
+
+        mock_client.table.return_value = table
+        table.select.return_value = select_chain
+        select_chain.eq.return_value = select_chain
+        select_chain.single.return_value = select_chain
+        select_chain.execute.return_value = MagicMock(
+            data={
+                "id": TEST_JOB_ID,
+                "kind": "ENROLLMENT",
+                "status": "PENDING",
+                "error_message": None,
+                "updated_at": "2026-03-04T12:00:00Z",
+            }
+        )
+
+        service = JobService(client=mock_client, queue_service=MagicMock())
+        await service.get_job_status(UUID(TEST_JOB_ID), UUID(TEST_USER_ID))
+
+        mock_client.table.assert_called_with("jobs")
+        table.select.assert_called_once_with(
+            "id, kind, status, error_message, updated_at"
+        )
+        # eq is called twice: once for id, once for owner_user_id
+        eq_calls = select_chain.eq.call_args_list
+        assert len(eq_calls) == 2
+        assert eq_calls[0].args == ("id", TEST_JOB_ID)
+        assert eq_calls[1].args == ("owner_user_id", TEST_USER_ID)
+
+    @pytest.mark.asyncio
+    async def test_not_found_raises_job_not_found_error(self):
+        """When Supabase .single() raises (no row), should raise JobNotFoundError."""
+        mock_client = MagicMock()
+        table = MagicMock()
+        select_chain = MagicMock()
+
+        mock_client.table.return_value = table
+        table.select.return_value = select_chain
+        select_chain.eq.return_value = select_chain
+        select_chain.single.return_value = select_chain
+        select_chain.execute.side_effect = Exception("Row not found")
+
+        service = JobService(client=mock_client, queue_service=MagicMock())
+        with pytest.raises(JobNotFoundError, match="not found"):
+            await service.get_job_status(
+                UUID(TEST_JOB_ID), UUID(TEST_USER_ID)
+            )
+
+    @pytest.mark.asyncio
+    async def test_wrong_owner_raises_job_not_found_error(self):
+        """Query filters by owner, so wrong owner = exception from .single() = not found."""
+        other_user_id = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        mock_client = MagicMock()
+        table = MagicMock()
+        select_chain = MagicMock()
+
+        mock_client.table.return_value = table
+        table.select.return_value = select_chain
+        select_chain.eq.return_value = select_chain
+        select_chain.single.return_value = select_chain
+        select_chain.execute.side_effect = Exception("Row not found")
+
+        service = JobService(client=mock_client, queue_service=MagicMock())
+        with pytest.raises(JobNotFoundError, match="not found"):
+            await service.get_job_status(UUID(TEST_JOB_ID), other_user_id)

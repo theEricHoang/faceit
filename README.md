@@ -36,14 +36,19 @@ pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your Supabase credentials
+# Edit .env with your Supabase credentials and AWS/SQS settings
 
-# Run development server
+# Run API server
 uvicorn app.main:app --host 0.0.0.0 --reload
+
+# Run enrollment worker (separate terminal)
+python -m app.worker.enrollment_worker
 
 # Run tests
 pytest tests/ -v
 ```
+
+> **Note:** The API server and enrollment worker are separate processes. See [Running Locally](#running-locally) for the full multi-terminal setup.
 
 ### Frontend Setup
 
@@ -116,13 +121,30 @@ If you haven't already set up AWS Identity Center for your team:
 
 ### Running Locally
 
-**Terminal 1 - Backend:**
+The backend consists of two separate processes that must be run independently.
+
+**Terminal 1 - Backend API:**
 ```bash
 cd backend/
 uvicorn app.main:app --reload
 ```
 
-**Terminal 2 - Frontend:**
+**Terminal 2 - Enrollment Worker:**
+```bash
+cd backend/
+python -m app.worker.enrollment_worker
+```
+
+By default the worker exits after 3 consecutive empty polls (designed for scheduled ECS tasks). For local development, set `WORKER_MAX_EMPTY_POLLS=0` in `backend/.env` to keep it running indefinitely:
+
+```bash
+# backend/.env
+WORKER_MAX_EMPTY_POLLS=0
+```
+
+The worker is a standalone process — it is **not** part of the FastAPI server. It polls SQS for enrollment jobs, processes face images, and writes results back to the database. You need AWS credentials and `SQS_ENROLLMENT_QUEUE_URL` set in `backend/.env` for it to run.
+
+**Terminal 3 - Frontend:**
 ```bash
 cd frontend/
 npx expo start

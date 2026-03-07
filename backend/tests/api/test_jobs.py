@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
-from app.services.job_service import CreateJobError
+from app.services.job_service import CreateJobError, JobNotFoundError
 
 
 TEST_JOB_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -99,3 +99,91 @@ class TestCreateJobRoute:
 
         assert response.status_code == 400
         assert "SQS unavailable" in response.json()["detail"]
+
+
+class TestGetJobStatusRoute:
+    """Tests for GET /jobs/{job_id}."""
+
+    def test_get_job_status_success(self, student_authenticated_client: TestClient):
+        """Authenticated student should get 200 with job status fields."""
+        with patch("app.api.routes.jobs.JobService") as MockJobService:
+            mock_instance = MagicMock()
+
+            async def mock_get_status(*args, **kwargs):
+                from app.schemas.job import JobStatusResponse
+                return JobStatusResponse(
+                    job_id=UUID(TEST_JOB_ID),
+                    status="SUCCEEDED",
+                    kind="ENROLLMENT",
+                    error_message=None,
+                    updated_at="2026-03-04T12:00:00Z",
+                )
+
+            mock_instance.get_job_status = mock_get_status
+            MockJobService.return_value = mock_instance
+
+            response = student_authenticated_client.get(f"/jobs/{TEST_JOB_ID}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["job_id"] == TEST_JOB_ID
+        assert data["status"] == "SUCCEEDED"
+        assert data["kind"] == "ENROLLMENT"
+        assert data["error_message"] is None
+        assert "updated_at" in data
+
+    def test_get_failed_job_includes_error_message(self, student_authenticated_client: TestClient):
+        """A FAILED job should include error_message in the response."""
+        with patch("app.api.routes.jobs.JobService") as MockJobService:
+            mock_instance = MagicMock()
+
+            async def mock_get_status(*args, **kwargs):
+                from app.schemas.job import JobStatusResponse
+                return JobStatusResponse(
+                    job_id=UUID(TEST_JOB_ID),
+                    status="FAILED",
+                    kind="ENROLLMENT",
+                    error_message="NO_FACE_DETECTED: no face found in image",
+                    updated_at="2026-03-04T12:00:00Z",
+                )
+
+            mock_instance.get_job_status = mock_get_status
+            MockJobService.return_value = mock_instance
+
+            response = student_authenticated_client.get(f"/jobs/{TEST_JOB_ID}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "FAILED"
+        assert data["error_message"] == "NO_FACE_DETECTED: no face found in image"
+
+    def test_job_not_found_returns_404(self, student_authenticated_client: TestClient):
+        """Non-existent job or wrong owner should return 404."""
+        with patch("app.api.routes.jobs.JobService") as MockJobService:
+            mock_instance = MagicMock()
+
+            async def mock_get_status(*args, **kwargs):
+                raise JobNotFoundError("Job not found")
+
+            mock_instance.get_job_status = mock_get_status
+            MockJobService.return_value = mock_instance
+
+            response = student_authenticated_client.get(f"/jobs/{TEST_JOB_ID}")
+
+        assert response.status_code == 404
+        assert "Job not found" in response.json()["detail"]
+
+    def test_invalid_job_id_returns_422(self, student_authenticated_client: TestClient):
+        """A non-UUID job_id should be rejected by FastAPI validation."""
+        response = student_authenticated_client.get("/jobs/not-a-uuid")
+        assert response.status_code == 422
+
+    def test_unauthenticated_returns_401(self, test_client: TestClient):
+        """Unauthenticated request should get 401."""
+        response = test_client.get(f"/jobs/{TEST_JOB_ID}")
+        assert response.status_code == 401
+
+    def test_instructor_returns_403(self, authenticated_client: TestClient):
+        """Instructor users should get 403 (student-only endpoint)."""
+        response = authenticated_client.get(f"/jobs/{TEST_JOB_ID}")
+        assert response.status_code == 403

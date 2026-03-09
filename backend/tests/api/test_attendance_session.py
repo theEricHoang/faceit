@@ -14,6 +14,7 @@ from app.api.routes.attendance import get_attendance_service, get_query_service
 
 STUB_SESSION_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
 STUB_CLASS_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
+STUB_STUDENT_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
 
 class FakeQueryService:
@@ -27,16 +28,16 @@ class FakeQueryService:
 
 
 class FakeAttendanceService:
-    """Returns canned stub data matching AttendanceSessionResponse schema."""
+    """Returns canned data matching AttendanceSessionResponse schema."""
 
     def get_session_report(self, session_id, class_id):
         return {
             "session_id": str(session_id),
             "class_id": str(class_id),
-            "captured_at": "2026-03-06T10:00:00Z",
+            "created_at": "2026-03-06T10:00:00Z",
             "present_students": [
                 {
-                    "student_user_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                    "student_id": STUB_STUDENT_ID,
                     "first_name": "Jane",
                     "last_name": "Smith",
                     "confidence": 0.94,
@@ -80,8 +81,9 @@ def test_instructor_gets_session_report(authenticated_client, mock_instructor_us
     payload = response.json()
     assert payload["session_id"] == str(STUB_SESSION_ID)
     assert payload["class_id"] == str(STUB_CLASS_ID)
-    assert payload["captured_at"] == "2026-03-06T10:00:00Z"
+    assert payload["created_at"] == "2026-03-06T10:00:00Z"
     assert len(payload["present_students"]) == 1
+    assert payload["present_students"][0]["student_id"] == STUB_STUDENT_ID
     assert payload["present_students"][0]["first_name"] == "Jane"
     assert payload["present_students"][0]["confidence"] == 0.94
     assert payload["unknown_count"] == 2

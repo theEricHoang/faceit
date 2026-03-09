@@ -1,8 +1,4 @@
-"""Service for fetching attendance session reports.
-
-Currently returns hardcoded stub data — the attendance_sessions and
-attendance_results tables do not exist yet.
-"""
+"""Service for fetching attendance session reports."""
 
 import logging
 from uuid import UUID
@@ -45,35 +41,85 @@ class AttendanceService:
     def get_session_report(self, session_id: UUID, class_id: UUID) -> dict:
         """Return a display-ready attendance report for a single session.
 
-        TODO: Replace stub with real Supabase queries once the
-        attendance_sessions and attendance_results tables exist.
+        Steps:
+            1. Fetch the attendance_session row by session_id + class_id.
+            2. Fetch all attendance_results for that session.
+            3. For recognized results (student_id IS NOT NULL), look up
+               student names from the profiles table.
+            4. Count unknown results (student_id IS NULL).
 
-        Real implementation will:
-            1. Query attendance_sessions filtered by session_id AND class_id
-               (ensures the session belongs to the requested class).
-            2. Query attendance_results joined with profiles to get student
-               names for recognized faces (student_user_id IS NOT NULL).
-            3. Count unknown faces (student_user_id IS NULL).
-            4. Raise SessionNotFoundError if no matching session row.
+        Raises:
+            SessionNotFoundError: If no session matches the given IDs.
+            AttendanceServiceError: On unexpected DB errors.
         """
-        # --- Stub data (remove when real tables are available) ---
-        return {
-            "session_id": str(session_id),
-            "class_id": str(class_id),
-            "captured_at": "2026-03-06T10:00:00Z",
-            "present_students": [
-                {
-                    "student_user_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-                    "first_name": "Jane",
-                    "last_name": "Smith",
-                    "confidence": 0.94,
-                },
-                {
-                    "student_user_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-                    "first_name": "Bob",
-                    "last_name": "Jones",
-                    "confidence": 0.87,
-                },
-            ],
-            "unknown_count": 2,
-        }
+        try:
+            # 1. Fetch session — must belong to the requested class
+            session_result = (
+                self.client
+                .table("attendance_sessions")
+                .select("id, class_id, created_at")
+                .eq("id", str(session_id))
+                .eq("class_id", str(class_id))
+                .maybe_single()
+                .execute()
+            )
+            session = session_result.data
+            if not session:
+                raise SessionNotFoundError(
+                    f"Session {session_id} not found in class {class_id}"
+                )
+
+            # 2. Fetch all results for this session
+            results_response = (
+                self.client
+                .table("attendance_results")
+                .select("student_id, confidence")
+                .eq("session_id", str(session_id))
+                .execute()
+            )
+            results = results_response.data or []
+
+            # 3. Separate recognized vs unknown
+            recognized = [r for r in results if r.get("student_id") is not None]
+            unknown_count = len(results) - len(recognized)
+
+            # 4. Batch-fetch profile names for recognized students
+            present_students = []
+            if recognized:
+                student_ids = list({r["student_id"] for r in recognized})
+                profiles_response = (
+                    self.client
+                    .table("profiles")
+                    .select("id, first_name, last_name")
+                    .in_("id", student_ids)
+                    .execute()
+                )
+                profiles_map = {
+                    p["id"]: p for p in (profiles_response.data or [])
+                }
+
+                for r in recognized:
+                    sid = r["student_id"]
+                    profile = profiles_map.get(sid, {})
+                    present_students.append({
+                        "student_id": sid,
+                        "first_name": profile.get("first_name", ""),
+                        "last_name": profile.get("last_name", ""),
+                        "confidence": r.get("confidence"),
+                    })
+
+            return {
+                "session_id": str(session["id"]),
+                "class_id": str(session["class_id"]),
+                "created_at": session.get("created_at"),
+                "present_students": present_students,
+                "unknown_count": unknown_count,
+            }
+
+        except SessionNotFoundError:
+            raise
+        except Exception as e:
+            logger.exception("Failed to fetch attendance session report")
+            raise AttendanceServiceError(
+                f"Failed to fetch session report: {e}"
+            ) from e

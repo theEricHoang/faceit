@@ -1,8 +1,4 @@
-"""Pydantic models mirroring the planned attendance DB tables.
-
-These tables do not exist yet.
-Models are defined here for documentation and type-checking purposes.
-"""
+"""Pydantic models mirroring the attendance DB tables."""
 
 from datetime import datetime
 from typing import Optional
@@ -12,27 +8,25 @@ from pydantic import BaseModel
 
 
 class AttendanceSession(BaseModel):
-    """Mirrors the planned attendance_sessions table."""
+    """Mirrors the attendance_sessions table."""
 
     id: UUID
     class_id: UUID
     instructor_id: UUID
-    job_id: UUID
-    captured_at: datetime
-    created_at: datetime
+    job_id: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 
 class AttendanceResult(BaseModel):
-    """Mirrors the planned attendance_results table.
+    """Mirrors the attendance_results table.
 
-    student_user_id is nullable: NULL means the face was detected
+    student_id is nullable: NULL means the face was detected
     but could not be matched to any enrolled student (UNKNOWN).
     """
 
     id: UUID
     session_id: UUID
-    student_user_id: Optional[UUID]
-    confidence: float
-    matched_embedding_id: Optional[UUID]
-    face_index: int
-    created_at: datetime
+    student_id: Optional[UUID] = None
+    confidence: Optional[float] = None
+    face_index: Optional[int] = None
+    created_at: Optional[datetime] = None

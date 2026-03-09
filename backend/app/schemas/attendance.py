@@ -1,6 +1,7 @@
 """Request/response schemas for attendance session reports."""
 
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -9,10 +10,10 @@ from pydantic import BaseModel
 class PresentStudent(BaseModel):
     """A student recognized as present in an attendance session."""
 
-    student_user_id: UUID
+    student_id: UUID
     first_name: str
     last_name: str
-    confidence: float
+    confidence: Optional[float] = None
 
 
 class AttendanceSessionResponse(BaseModel):
@@ -20,6 +21,6 @@ class AttendanceSessionResponse(BaseModel):
 
     session_id: UUID
     class_id: UUID
-    captured_at: datetime
+    created_at: Optional[datetime] = None
     present_students: list[PresentStudent]
     unknown_count: int

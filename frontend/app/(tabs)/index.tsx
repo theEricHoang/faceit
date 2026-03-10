@@ -14,11 +14,10 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import ClassCard from "../../components/ClassCard";
-import StudentListModal from "../../components/StudentListModal";
 import { SafeAreaView } from "react-native-safe-area-context";
 import CreateClassModal from "../../components/CreateClassModal";
 import { useAuthStore } from "@/stores/auth-store";
-import { getClasses, ClassItem, getClassStudents, StudentEnrollmentItem } from "@/services/classes-service";
+import { getClasses, ClassItem } from "@/services/classes-service";
 import { logout } from "@/services/auth-service";
 
 export default function HomeScreen() {
@@ -26,11 +25,6 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [showStudentList, setShowStudentList] = useState(false);
-  const [selectedClass, setSelectedClass] = useState<ClassItem | null>(null);
-  const [students, setStudents] = useState<StudentEnrollmentItem[]>([]);
-  const [studentListLoading, setStudentListLoading] = useState(false);
-  const [studentListError, setStudentListError] = useState<string | null>(null);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -96,34 +90,6 @@ export default function HomeScreen() {
     await logout();
     router.replace("/(auth)/login");
   };
-
-  // Fetch students for a selected class (instructor only)
-  const fetchClassStudents = useCallback(async (classId: string) => {
-    try {
-      setStudentListError(null);
-      setStudentListLoading(true);
-      const response = await getClassStudents(classId);
-      setStudents(response.students);
-    } catch (err) {
-      console.error("Failed to fetch students:", err);
-      setStudentListError("Failed to load students");
-    } finally {
-      setStudentListLoading(false);
-    }
-  }, []);
-
-  const handleViewStudents = useCallback((classItem: ClassItem) => {
-    setSelectedClass(classItem);
-    setShowStudentList(true);
-    fetchClassStudents(classItem.class_id);
-  }, [fetchClassStudents]);
-
-  const handleCloseStudentList = useCallback(() => {
-    setShowStudentList(false);
-    setSelectedClass(null);
-    setStudents([]);
-    setStudentListError(null);
-  }, []);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -248,11 +214,7 @@ export default function HomeScreen() {
               section={cls.section}
               schedule={cls.schedule}
               room={cls.room}
-              onPress={() => 
-                role === "instructor" 
-                  ? handleViewStudents(cls)
-                  : router.push(`/class/${cls.class_id}`)
-              }
+              onPress={() => router.push(`/class/${cls.class_id}`)}
             />
           ))}
       </ScrollView>
@@ -261,21 +223,6 @@ export default function HomeScreen() {
           visible={showModal}
           onClose={() => setShowModal(false)}
           onSuccess={handleClassCreated}
-        />
-      )}
-
-      {selectedClass && (
-        <StudentListModal
-          visible={showStudentList}
-          classId={selectedClass.class_id}
-          courseCode={selectedClass.course_code}
-          courseName={selectedClass.course_name}
-          section={selectedClass.section}
-          students={students}
-          isLoading={studentListLoading}
-          error={studentListError}
-          onClose={handleCloseStudentList}
-          onRetry={() => selectedClass && fetchClassStudents(selectedClass.class_id)}
         />
       )}
     </SafeAreaView>

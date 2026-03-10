@@ -1,22 +1,3 @@
-// --- Student Enrollment Types ---
-export interface StudentEnrollmentItem {
-  user_id: string;
-  first_name: string;
-  last_name: string;
-  email: string | null;
-}
-
-export interface ClassEnrolledStudentsResponse {
-  class_id: string;
-  students: StudentEnrollmentItem[];
-}
-
-/**
- * Get all students enrolled in a class (instructor only)
- */
-export async function getClassStudents(classId: string): Promise<ClassEnrolledStudentsResponse> {
-  return apiClient.get<ClassEnrolledStudentsResponse>(`/classes/${classId}/students`);
-}
 import { apiClient } from '@/services/api-client';
 
 // Types matching backend schemas

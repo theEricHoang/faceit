@@ -1,24 +1,13 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from uuid import UUID
-from app.schemas.course import (
-    CreateClassRequest,
-    CreateClassResponse,
-    ListClassesResponse,
-    ClassListItem,
-    JoinClassRequest,
-    JoinClassResponse,
-    ClassDetailResponse,
-    WithdrawClassResponse,
-)
-from app.schemas.student import ClassEnrolledStudentsResponse, StudentEnrollmentItem
+from app.schemas.course import CreateClassRequest, CreateClassResponse, ListClassesResponse, ClassListItem, JoinClassRequest, JoinClassResponse, ClassDetailResponse, WithdrawClassResponse
 from app.schemas.image import UploadUrlResponse
 from app.schemas.user import CurrentUser
 from app.services.classes.class_query_service import ClassService as ClassQueryService
 from app.services.classes.class_service import ClassService, CreateClassError
 from app.services.enrollment_service import EnrollmentService, EnrollmentServiceError
 from app.services.storage_service import StorageService
-from app.services.classes.class_read_repository import ClassReadRepository, ClassReadError
 from app.api.deps import get_current_user, require_instructor
 
 router = APIRouter(prefix="/classes", tags=["classes"])
@@ -33,10 +22,6 @@ def get_enrollment_service():
 
 def get_storage_service():
     return StorageService()
-
-
-def get_read_repository():
-    return ClassReadRepository()
 
 @router.get("", response_model=ListClassesResponse)
 async def list_classes(
@@ -190,39 +175,3 @@ async def withdraw_from_class(
         return WithdrawClassResponse(class_id=UUID(str(result["class_id"])), student_id=current_user.user_id)
     except EnrollmentServiceError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
-@router.get("/{class_id}/students", response_model=ClassEnrolledStudentsResponse)
-async def get_class_students(
-    class_id: UUID,
-    current_user: CurrentUser = Depends(get_current_user),
-    read_repo: ClassReadRepository = Depends(get_read_repository),
-):
-    """Get all students enrolled in a class. Only the instructor of the class can view this."""
-    if current_user.type != "instructor":
-        raise HTTPException(status_code=403, detail="Only instructors can view enrolled students")
-    
-    try:
-        # Verify the instructor owns this class
-        classes = read_repo.get_classes_by_instructor(current_user.user_id)
-        if not any(cls.get("id") == str(class_id) for cls in classes):
-            raise HTTPException(status_code=403, detail="You do not have permission to view this class's students")
-        
-        students = read_repo.get_students_by_class(class_id)
-        return ClassEnrolledStudentsResponse(
-            class_id=class_id,
-            students=[
-                StudentEnrollmentItem(
-                    user_id=UUID(str(student.get("id"))),
-                    first_name=student.get("first_name"),
-                    last_name=student.get("last_name"),
-                    email=student.get("email"),
-                )
-                for student in students
-            ]
-        )
-    except ClassReadError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))

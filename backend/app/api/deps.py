@@ -7,8 +7,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from jwt import PyJWKClient, PyJWTError
 
-from app.db.supabase import get_supabase_client
-
 from app.core.config import get_settings
 from app.models.instructor import ProfileType
 from app.schemas.user import CurrentUser
@@ -57,7 +55,7 @@ async def get_current_user(
 
         user_id = payload.get("sub")
         email = payload.get("email")
-        jwt_type = payload.get("user_metadata", {}).get("type")
+        user_type = payload.get("user_metadata", {}).get("type")
 
         if not user_id or not email:
             raise HTTPException(
@@ -65,29 +63,9 @@ async def get_current_user(
                 detail="Invalid authentication credentials",
             )
 
-        # Attempt to read the authoritative profile type from the database
-        # so that we don't rely solely on JWT metadata (which may be stale).
-        profile_type = ProfileType.STUDENT
-        try:
-            client = get_supabase_client()
-            resp = (
-                client
-                .table("profiles")
-                .select("type")
-                .eq("id", str(user_id))
-                .single()
-                .execute()
-            )
-            profile_data = resp.data or {}
-            if profile_data.get("type"):
-                profile_type = ProfileType(profile_data.get("type"))
-            elif jwt_type:
-                # fallback to token if DB record missing type
-                profile_type = ProfileType(jwt_type)
-        except Exception:
-            # ignore DB errors and fall back to JWT metadata or default
-            if jwt_type:
-                profile_type = ProfileType(jwt_type)
+        # If type not in JWT metadata, default to student
+        # In production, you might want to fetch from DB instead
+        profile_type = ProfileType(user_type) if user_type else ProfileType.STUDENT
 
         return CurrentUser(
             user_id=UUID(user_id),

@@ -150,11 +150,15 @@ async function request<T>(
 
   // Handle non-OK responses
   if (!response.ok) {
+    // We can only read the body once, so grab it as text and
+    // attempt to parse JSON ourselves. This avoids the "body
+    // stream already read" error when json() throws.
     let errorData: unknown;
+    const text = await response.text();
     try {
-      errorData = await response.json();
+      errorData = text ? JSON.parse(text) : undefined;
     } catch {
-      errorData = await response.text();
+      errorData = text;
     }
 
     throw createApiError(

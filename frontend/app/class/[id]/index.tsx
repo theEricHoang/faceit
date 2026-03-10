@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ScrollView, Modal, Alert } from 'react-native';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { View, Text, Pressable, StyleSheet, ScrollView, Modal, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { getClassDetails, withdrawFromClass, type ClassDetailResponse } from '@/services/classes-service';
+import { getClassDetails, withdrawFromClass, getClassStudents, type ClassDetailResponse, type StudentEnrollmentItem } from '@/services/classes-service';
 import { useAuthStore } from '@/stores/auth-store';
 
 const MOCK_ATTENDANCE_RECORDS = [
@@ -26,6 +26,28 @@ export default function ClassDetailsScreen() {
   const [details, setDetails] = useState<ClassDetailResponse | null>(null);
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
 
+  // instructor-specific student list
+  const [students, setStudents] = useState<StudentEnrollmentItem[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
+  const [studentsError, setStudentsError] = useState<string | null>(null);
+
+
+  const role = user?.type ?? 'student';
+
+  const fetchStudents = useCallback(async (classId: string) => {
+    try {
+      setStudentsError(null);
+      setStudentsLoading(true);
+      const res = await getClassStudents(classId);
+      setStudents(res.students);
+    } catch (e) {
+      console.error('Failed to load students', e);
+      setStudentsError('Failed to load students');
+    } finally {
+      setStudentsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -33,13 +55,16 @@ export default function ClassDetailsScreen() {
         if (params.id) {
           const res = await getClassDetails(String(params.id));
           if (mounted) setDetails(res);
+          if (role === 'instructor') {
+            await fetchStudents(String(params.id));
+          }
         }
       } catch (e: any) {
         console.warn('Failed to fetch class details', e?.message || e);
       }
     })();
     return () => { mounted = false; };
-  }, [params.id]);
+  }, [params.id, role, fetchStudents]);
 
   const presentCount = useMemo(() => MOCK_ATTENDANCE_RECORDS.filter(r => r.status === 'present').length, []);
   const totalSessions = MOCK_ATTENDANCE_RECORDS.length;
@@ -282,4 +307,65 @@ const styles = StyleSheet.create({
     borderColor: '#eee',
   },
   modalTitle: { fontSize: 18, fontWeight: '600' },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 120,
+  },
+  errorText: {
+    color: '#e53935',
+    fontSize: 14,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#e53935',
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  retryText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  emptyText: {
+    color: '#888',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  studentCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f9f9f9',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  studentAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  studentAvatarText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  studentInfo: {
+    flex: 1,
+  },
+  studentName: {
+    fontSize: 15,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  studentEmail: {
+    fontSize: 13,
+    color: '#666',
+  },
 });

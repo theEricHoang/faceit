@@ -1,13 +1,24 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from uuid import UUID
-from app.schemas.course import CreateClassRequest, CreateClassResponse, ListClassesResponse, ClassListItem, JoinClassRequest, JoinClassResponse, ClassDetailResponse, WithdrawClassResponse
+from app.schemas.course import (
+    CreateClassRequest,
+    CreateClassResponse,
+    ListClassesResponse,
+    ClassListItem,
+    JoinClassRequest,
+    JoinClassResponse,
+    ClassDetailResponse,
+    WithdrawClassResponse,
+)
+from app.schemas.student import ClassEnrolledStudentsResponse, StudentEnrollmentItem
 from app.schemas.image import UploadUrlResponse
 from app.schemas.user import CurrentUser
 from app.services.classes.class_query_service import ClassService as ClassQueryService
 from app.services.classes.class_service import ClassService, CreateClassError
 from app.services.enrollment_service import EnrollmentService, EnrollmentServiceError
 from app.services.storage_service import StorageService
+from app.services.classes.class_read_repository import ClassReadRepository, ClassReadError
 from app.api.deps import get_current_user, require_instructor
 
 router = APIRouter(prefix="/classes", tags=["classes"])
@@ -22,6 +33,10 @@ def get_enrollment_service():
 
 def get_storage_service():
     return StorageService()
+
+
+def get_read_repository():
+    return ClassReadRepository()
 
 @router.get("", response_model=ListClassesResponse)
 async def list_classes(

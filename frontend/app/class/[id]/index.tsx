@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView, Modal, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { getClassDetails, withdrawFromClass, type ClassDetailResponse } from '@/services/classes-service';
+import { getClassDetails, withdrawFromClass, getClassStudents, type ClassDetailResponse, type StudentEnrollmentItem } from '@/services/classes-service';
 import { useAuthStore } from '@/stores/auth-store';
 
 const MOCK_ATTENDANCE_RECORDS = [
@@ -31,7 +31,7 @@ export default function ClassDetailsScreen() {
   const [studentsLoading, setStudentsLoading] = useState(false);
   const [studentsError, setStudentsError] = useState<string | null>(null);
 
-  const user = useAuthStore((state) => state.user);
+
   const role = user?.type ?? 'student';
 
   const fetchStudents = useCallback(async (classId: string) => {

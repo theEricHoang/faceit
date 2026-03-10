@@ -101,7 +101,7 @@ export default function StudentListModal({
                   <Text style={styles.studentName}>
                     {student.first_name} {student.last_name}
                   </Text>
-                  <Text style={styles.studentEmail}>{student.email}</Text>
+                  <Text style={styles.studentEmail}>{student.email || 'No email available'}</Text>
                 </View>
               </View>
             ))}

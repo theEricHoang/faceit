@@ -7,7 +7,7 @@ class StudentEnrollmentItem(BaseModel):
     user_id: UUID
     first_name: str
     last_name: str
-    email: EmailStr
+    email: EmailStr | None = None
 
 
 class ClassEnrolledStudentsResponse(BaseModel):

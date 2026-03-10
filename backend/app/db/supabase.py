@@ -1,16 +1,14 @@
-from functools import lru_cache
-
 from supabase import create_client, Client
 
 from app.core.config import get_settings
 
 
-@lru_cache
 def get_supabase_client() -> Client:
-    """Get cached Supabase client instance using service key.
-    
-    Uses the service key which bypasses Row Level Security (RLS)
-    for server-side operations.
+    """Create a Supabase client using the service role key.
+
+    Returns a fresh client each time to prevent auth state mutations
+    (e.g. from sign_in_with_password) from leaking between requests
+    and breaking RLS-protected table operations.
     """
     settings = get_settings()
     return create_client(settings.supabase_url, settings.supabase_service_key)

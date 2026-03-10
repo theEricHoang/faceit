@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView, Modal, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { getClassDetails, withdrawFromClass, getClassStudents, type ClassDetailResponse, type StudentEnrollmentItem } from '@/services/classes-service';
+import { getClassDetails, withdrawFromClass, type ClassDetailResponse } from '@/services/classes-service';
 import { useAuthStore } from '@/stores/auth-store';
 
 const MOCK_ATTENDANCE_RECORDS = [
@@ -18,9 +18,11 @@ const MOCK_ATTENDANCE_RECORDS = [
   { date: '2025-09-29', status: 'present' as const },
 ];
 
-export default function StudentClassDetailsScreen() {
+export default function ClassDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string }>();
+  const user = useAuthStore((state) => state.user);
+  const isInstructor = user?.type === 'instructor';
   const [details, setDetails] = useState<ClassDetailResponse | null>(null);
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
 
@@ -95,46 +97,17 @@ export default function StudentClassDetailsScreen() {
           </View>
         </View>
 
-        {/* Enrolled students for instructors */}
-        {role === 'instructor' && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Enrolled Students ({students.length})</Text>
-
-            {studentsLoading && (
-              <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color="#000" />
-              </View>
-            )}
-
-            {studentsError && !studentsLoading && (
-              <View style={styles.centerContainer}>
-                <Text style={styles.errorText}>{studentsError}</Text>
-                <Pressable style={styles.retryButton} onPress={() => params.id && fetchStudents(params.id)}>
-                  <Text style={styles.retryText}>Retry</Text>
-                </Pressable>
-              </View>
-            )}
-
-            {!studentsLoading && !studentsError && students.length === 0 && (
-              <View style={styles.centerContainer}>
-                <Text style={styles.emptyText}>No students enrolled yet</Text>
-              </View>
-            )}
-
-            {!studentsLoading && !studentsError && students.map((s) => (
-              <View key={s.user_id} style={styles.studentCard}>
-                <View style={styles.studentAvatar}>
-                  <Text style={styles.studentAvatarText}>
-                    {s.first_name[0]?.toUpperCase() || 'S'}{s.last_name[0]?.toUpperCase() || 'T'}
-                  </Text>
-                </View>
-                <View style={styles.studentInfo}>
-                  <Text style={styles.studentName}>{s.first_name} {s.last_name}</Text>
-                  <Text style={styles.studentEmail}>{s.email}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
+        {/* Take Attendance (Instructor only) */}
+        {isInstructor && (
+          <Pressable
+            style={styles.takeAttendanceButton}
+            onPress={() => {
+              router.push(`/class/${params.id}/take-attendance`);
+            }}
+          >
+            <Ionicons name="camera-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={styles.primaryButtonText}>Take Attendance</Text>
+          </Pressable>
         )}
 
         {/* Attendance Summary */}
@@ -184,8 +157,8 @@ export default function StudentClassDetailsScreen() {
           ))}
         </View>
 
-        {/* Withdraw Button (students only) */}
-        {role === 'student' && (
+        {/* Withdraw Button (Student only) */}
+        {!isInstructor && (
           <Pressable style={[styles.primaryButton, styles.destructiveButton, { marginTop: 16 }]} onPress={() => setWithdrawDialogOpen(true)}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Ionicons name="log-out-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
@@ -194,12 +167,12 @@ export default function StudentClassDetailsScreen() {
           </Pressable>
         )}
 
-        {/* Withdraw Confirmation Dialog */}
+        {/* Withdraw Confirmation Dialog (Student only) */}
         <Modal visible={withdrawDialogOpen} transparent animationType="fade" onRequestClose={() => setWithdrawDialogOpen(false)}>
           <Pressable style={styles.menuOverlay} onPress={() => setWithdrawDialogOpen(false)}>
             <View style={styles.menuContainer}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Are you sure Withdrawing from class?</Text>
+                <Text style={styles.modalTitle}>Are you sure you want to withdraw from class?</Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, padding: 16 }}>
                 <Pressable
@@ -299,6 +272,15 @@ const styles = StyleSheet.create({
   },
   destructiveButton: {
     backgroundColor: '#dc2626',
+  },
+  takeAttendanceButton: {
+    flexDirection: 'row',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: '#000',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   primaryButtonText: { color: '#fff', fontWeight: '600' },
   menuOverlay: {

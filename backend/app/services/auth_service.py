@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from supabase import Client
@@ -16,6 +17,8 @@ from app.schemas.user import (
     StudentSignupResponse,
 )
 
+logger = logging.getLogger("uvicorn.error")
+
 
 class AuthServiceError(Exception):
     """Base exception for auth service errors."""
@@ -25,6 +28,18 @@ class AuthServiceError(Exception):
 
 class SignupError(AuthServiceError):
     """Exception raised when signup fails."""
+
+    pass
+
+
+class SignupConflictError(SignupError):
+    """Exception raised when signup conflicts with existing data."""
+
+    pass
+
+
+class SignupRollbackError(SignupError):
+    """Exception raised when signup fails and rollback is incomplete."""
 
     pass
 
@@ -44,8 +59,22 @@ class RefreshError(AuthServiceError):
 class AuthService:
     """Service for handling authentication operations."""
 
-    def __init__(self, client: Client | None = None):
-        self.client = client or get_supabase_client()
+    def __init__(
+        self,
+        client: Client | None = None,
+        db_client: Client | None = None,
+        admin_client: Client | None = None,
+    ):
+        # Keep backward compatibility for tests that inject a single client,
+        # while allowing isolated clients to avoid auth-state cross-contamination.
+        if client is not None:
+            self.auth_client = client
+            self.db_client = db_client or client
+            self.admin_client = admin_client or client
+        else:
+            self.auth_client = get_supabase_client()
+            self.db_client = db_client or get_supabase_client()
+            self.admin_client = admin_client or get_supabase_client()
 
     async def signup_instructor(
         self, request: InstructorSignupRequest
@@ -69,7 +98,7 @@ class AuthService:
 
         try:
             # Step 1: Create auth user via Supabase Auth with user_metadata
-            auth_response = self.client.auth.sign_up(
+            auth_response = self.auth_client.auth.sign_up(
                 {
                     "email": request.email,
                     "password": request.password,
@@ -98,7 +127,7 @@ class AuthService:
                 "type": ProfileType.INSTRUCTOR.value,
             }
 
-            profile_result = self.client.table("profiles").insert(profile_data).execute()
+            profile_result = self.db_client.table("profiles").insert(profile_data).execute()
 
             if not profile_result.data:
                 raise SignupError("Failed to create profile record")
@@ -111,7 +140,7 @@ class AuthService:
             }
 
             instructor_result = (
-                self.client.table("instructors").insert(instructor_data).execute()
+                self.db_client.table("instructors").insert(instructor_data).execute()
             )
 
             if not instructor_result.data:
@@ -135,13 +164,13 @@ class AuthService:
         except SignupError:
             # Re-raise SignupError after cleanup
             if user_id:
-                await self._rollback_signup(user_id)
+                await self._rollback_or_raise(user_id, "Instructor signup failed")
             raise
 
         except Exception as e:
             # Clean up all created records
             if user_id:
-                await self._rollback_signup(user_id)
+                await self._rollback_or_raise(user_id, "Instructor signup failed")
             raise SignupError(f"Signup failed: {str(e)}") from e
         
     async def signup_student(
@@ -165,8 +194,12 @@ class AuthService:
         user_id: UUID | None = None
 
         try:
+            # Step 0: Fast-path duplicate check before creating auth user.
+            if self._student_number_exists(request.number):
+                raise SignupConflictError("Student number already exists")
+
             # Step 1: Create auth user via Supabase Auth with user_metadata
-            auth_response = self.client.auth.sign_up(
+            auth_response = self.auth_client.auth.sign_up(
                 {
                     "email": request.email,
                     "password": request.password,
@@ -195,7 +228,7 @@ class AuthService:
                 "type": ProfileType.STUDENT.value,
             }
 
-            profile_result = self.client.table("profiles").insert(profile_data).execute()
+            profile_result = self.db_client.table("profiles").insert(profile_data).execute()
 
             if not profile_result.data:
                 raise SignupError("Failed to create profile record")
@@ -207,9 +240,14 @@ class AuthService:
                 "major": request.major,
             }
 
-            student_result = (
-                self.client.table("students").insert(student_data).execute()
-            )
+            try:
+                student_result = (
+                    self.db_client.table("students").insert(student_data).execute()
+                )
+            except Exception as e:
+                if self._is_student_number_conflict_error(e):
+                    raise SignupConflictError("Student number already exists") from e
+                raise
 
             if not student_result.data:
                 raise SignupError("Failed to create student record")
@@ -232,13 +270,13 @@ class AuthService:
         except SignupError:
             # Re-raise SignupError after cleanup
             if user_id:
-                await self._rollback_signup(user_id)
+                await self._rollback_or_raise(user_id, "Student signup failed")
             raise
 
         except Exception as e:
             # Clean up all created records
             if user_id:
-                await self._rollback_signup(user_id)
+                await self._rollback_or_raise(user_id, "Student signup failed")
             raise SignupError(f"Signup failed: {str(e)}") from e
 
     async def _rollback_signup(self, user_id: UUID) -> None:
@@ -253,25 +291,57 @@ class AuthService:
             user_id: The UUID of the user whose records should be removed.
         """
         uid = str(user_id)
+        rollback_errors: list[str] = []
 
         # Clean up role-specific tables first (children before parent)
         for table in ("instructors", "students"):
             try:
-                self.client.table(table).delete().eq("id", uid).execute()
-            except Exception:
-                pass
+                self.db_client.table(table).delete().eq("id", uid).execute()
+            except Exception as e:
+                logger.exception("Rollback: failed to delete %s row for user %s", table, uid)
+                rollback_errors.append(f"{table}: {e}")
 
         # Clean up profile row
         try:
-            self.client.table("profiles").delete().eq("id", uid).execute()
-        except Exception:
-            pass
+            self.db_client.table("profiles").delete().eq("id", uid).execute()
+        except Exception as e:
+            logger.exception("Rollback: failed to delete profiles row for user %s", uid)
+            rollback_errors.append(f"profiles: {e}")
 
         # Finally, remove the auth user
         try:
-            self.client.auth.admin.delete_user(uid)
-        except Exception:
-            pass
+            self.admin_client.auth.admin.delete_user(uid)
+        except Exception as e:
+            logger.exception("Rollback: failed to delete auth user %s", uid)
+            rollback_errors.append(f"auth_user: {e}")
+
+        if rollback_errors:
+            raise SignupRollbackError(
+                "Rollback incomplete (" + "; ".join(rollback_errors) + ")"
+            )
+
+    async def _rollback_or_raise(self, user_id: UUID, context: str) -> None:
+        try:
+            await self._rollback_signup(user_id)
+        except SignupRollbackError as rollback_error:
+            raise SignupRollbackError(f"{context}. {rollback_error}") from rollback_error
+
+    def _student_number_exists(self, student_number: str) -> bool:
+        result = (
+            self.db_client.table("students")
+            .select("id")
+            .eq("number", student_number)
+            .execute()
+        )
+        return isinstance(result.data, list) and len(result.data) > 0
+
+    @staticmethod
+    def _is_student_number_conflict_error(exc: Exception) -> bool:
+        message = str(exc).lower()
+        return (
+            "duplicate key value violates unique constraint" in message
+            and "student_number_key" in message
+        )
 
     async def login(self, request: LoginRequest) -> LoginResponse:
         """Log in a user with email and password.
@@ -289,7 +359,7 @@ class AuthService:
         """
         try:
             # Authenticate with Supabase Auth
-            auth_response = self.client.auth.sign_in_with_password(
+            auth_response = self.auth_client.auth.sign_in_with_password(
                 {"email": request.email, "password": request.password}
             )
 
@@ -300,7 +370,7 @@ class AuthService:
 
             # Fetch user profile
             profile_result = (
-                self.client.table("profiles")
+                self.db_client.table("profiles")
                 .select("first_name, last_name, type")
                 .eq("id", str(user_id))
                 .single()
@@ -341,7 +411,7 @@ class AuthService:
             RefreshError: If token refresh fails.
         """
         try:
-            auth_response = self.client.auth.refresh_session(request.refresh_token)
+            auth_response = self.auth_client.auth.refresh_session(request.refresh_token)
 
             if not auth_response.session:
                 raise RefreshError("Failed to refresh token")

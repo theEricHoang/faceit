@@ -23,7 +23,8 @@ pyenv virtualenv 3.12.2 backend
 pip install -r requirements.txt
 
 # Development
-uvicorn app.main:app --host 0.0.0.0 --reload    # Start dev server
+uvicorn app.main:app --host 0.0.0.0 --reload    # Start API server (separate from worker)
+python -m app.worker.enrollment_worker           # Start enrollment worker (separate process)
 
 # Testing
 pytest tests/ -v                                 # Run all tests
@@ -31,6 +32,8 @@ pytest tests/services/test_auth_service.py -v   # Run single test file
 pytest tests/api/test_auth.py::test_signup -v   # Run single test
 pytest tests/ --cov=app --cov-report=term-missing  # With coverage
 ```
+
+> **Note:** The FastAPI server and the enrollment worker are **separate processes**. `POST /jobs` inserts a DB row and enqueues an SQS message; the worker picks it up on its next poll cycle. Run both if you need end-to-end job processing locally.
 
 ### Environment Setup
 - **Backend**: Copy `backend/.env.example` to `backend/.env` (requires `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_JWT_SECRET`)
@@ -41,7 +44,7 @@ pytest tests/ --cov=app --cov-report=term-missing  # With coverage
 ### Backend Layer Structure
 ```
 Routes (api/routes/) → Services (services/) → Supabase Client (db/supabase.py)
-     ↑                       ↑
+     ↑                       ↑                  AWS Clients    (db/aws.py)
   Schemas                 Models
 (schemas/)              (models/)
 ```
@@ -101,10 +104,35 @@ async def handler(request: RequestSchema) -> ResponseSchema:
 ```
 
 #### Supabase Integration
-- Single cached client via `get_supabase_client()` in `app/db/supabase.py`
+- Fresh client per call via `get_supabase_client()` in `app/db/supabase.py` (not cached, to prevent auth state leaking between requests)
 - Uses **service key** (bypasses RLS) for all server-side operations
 - Auth operations: `client.auth.sign_up()`, `client.auth.sign_in_with_password()`
 - Table operations: `client.table("table_name").insert().execute()`
+
+#### AWS Client Integration
+AWS clients (S3, SQS, etc.) are created via factory functions in `app/db/aws.py`:
+```python
+from app.db.aws import get_s3_client, get_sqs_client
+
+# In service constructors — accept optional client for test injection
+class MyService:
+    def __init__(self, s3_client=None):
+        self.s3_client = s3_client or get_s3_client()
+```
+- Factory functions (`get_s3_client()`, `get_sqs_client()`) use a **cached boto3 session** to avoid repeatedly loading AWS credentials
+- Services accept an optional client parameter for dependency injection during tests
+- **Do NOT create boto3 sessions or clients directly in services** — always use the factory functions in `app/db/aws.py`
+- To add a new AWS client type, add a new factory function to `app/db/aws.py` following the existing pattern
+
+#### Logging
+Use the `uvicorn.error` logger throughout the backend:
+```python
+import logging
+
+logger = logging.getLogger("uvicorn.error")
+```
+- Use `logger.exception()` in best-effort rollback/cleanup handlers to capture tracebacks
+- Do NOT silently swallow exceptions with bare `except: pass`
 
 #### Testing Patterns
 - Fixtures in `tests/conftest.py` provide mock Supabase client and sample data

@@ -58,16 +58,10 @@ export interface WithdrawClassResponse {
   student_id: string;
 }
 
-export interface StudentEnrollmentItem {
-  user_id: string;
-  first_name: string;
-  last_name: string;
-  email: string;
-}
-
-export interface ClassEnrolledStudentsResponse {
-  class_id: string;
-  students: StudentEnrollmentItem[];
+export interface UploadUrlResponse {
+  upload_url: string;
+  bucket: string;
+  key: string;
 }
 
 /**
@@ -114,8 +108,29 @@ export async function withdrawFromClass(classId: string): Promise<WithdrawClassR
 }
 
 /**
- * Get all students enrolled in a class (instructor only)
+ * Get a presigned S3 upload URL for an attendance photo (instructor only)
  */
-export async function getClassStudents(classId: string): Promise<ClassEnrolledStudentsResponse> {
-  return apiClient.get<ClassEnrolledStudentsResponse>(`/classes/${classId}/students`);
+export async function getAttendanceUploadUrl(classId: string): Promise<UploadUrlResponse> {
+  return apiClient.post<UploadUrlResponse>(`/classes/${classId}/attendance/upload-url`);
+}
+
+/**
+ * Upload a photo to S3 using a presigned URL.
+ * Reads the local file URI as a blob and PUTs it directly to S3.
+ */
+export async function uploadPhotoToS3(presignedUrl: string, photoUri: string): Promise<void> {
+  const response = await fetch(photoUri);
+  const blob = await response.blob();
+
+  const uploadResponse = await fetch(presignedUrl, {
+    method: 'PUT',
+    body: blob,
+    headers: {
+      'Content-Type': 'image/jpeg',
+    },
+  });
+
+  if (!uploadResponse.ok) {
+    throw new Error(`S3 upload failed with status ${uploadResponse.status}`);
+  }
 }

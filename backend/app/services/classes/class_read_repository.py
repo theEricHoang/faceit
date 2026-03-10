@@ -79,60 +79,19 @@ class ClassReadRepository:
 			raise
 		except Exception as e:
 			raise ClassReadError(f"Failed to fetch class details: {e}")
-		
-	def get_students_by_class(self, class_id: UUID) -> List[dict]:
-		"""Fetch all students enrolled in a specific class."""
+
+	def instructor_has_class(self, instructor_id: UUID, class_id: UUID) -> bool:
+		"""Check whether a class belongs to an instructor."""
 		try:
-			# First, get all student_ids from the junction table
-			enrollment_result = (
+			result = (
 				self.client
-				.table("student_classes")
-				.select("student_id")
-				.eq("class_id", str(class_id))
+				.table("classes")
+				.select("id")
+				.eq("id", str(class_id))
+				.eq("instructor_id", str(instructor_id))
+				.limit(1)
 				.execute()
 			)
-			
-			student_ids = [row["student_id"] for row in (enrollment_result.data or [])]
-			
-			if not student_ids:
-				return []
-			
-			# Now fetch profile data for all these students
-			# We need to get first_name, last_name, and email from profiles table
-			students_data = []
-			for student_id in student_ids:
-				profile_result = (
-					self.client
-					.table("profiles")
-					.select("id, first_name, last_name")
-					.eq("id", str(student_id))
-					.single()
-					.execute()
-				)
-				if profile_result.data:
-					profile = profile_result.data
-					# Get email from Supabase users table (auth)
-					# For now, we'll try to get it; if not available, use a placeholder
-					email = ""
-					try:
-						# Try to fetch user email if available
-						user_result = (
-							self.client
-							.auth.admin
-							.get_user_by_id(str(student_id))
-						)
-						email = user_result.user.email if user_result.user else ""
-					except Exception:
-						# If we can't get email from auth, that's okay
-						email = ""
-					
-					students_data.append({
-						"id": profile.get("id"),
-						"first_name": profile.get("first_name"),
-						"last_name": profile.get("last_name"),
-						"email": email,
-					})
-			
-			return students_data
+			return bool(result.data)
 		except Exception as e:
-			raise ClassReadError(f"Failed to fetch students for class: {e}")
+			raise ClassReadError(f"Failed to validate instructor class ownership: {e}")

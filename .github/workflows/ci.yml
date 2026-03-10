@@ -28,4 +28,5 @@ jobs:
             SUPABASE_URL: "https://test.supabase.co"
             SUPABASE_SERVICE_KEY: "test-service-key"
             SUPABASE_JWT_SECRET: "test-jwt-secret-at-least-32-characters-long"
+            SQS_ENROLLMENT_QUEUE_URL: "https://sqs.us-east-1.amazonaws.com/000000000000/test-queue"
         run: pytest tests/ -v

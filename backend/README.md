@@ -1,6 +1,6 @@
 # FaceIT Backend
 
-This is the backend service for FaceIT.
+FastAPI + Supabase backend for FaceIT. The backend consists of two separate processes: the **API server** (handles HTTP requests) and the **enrollment worker** (processes face embedding jobs from SQS).
 
 ## Structure
 
@@ -8,11 +8,12 @@ This is the backend service for FaceIT.
   - `main.py` - FastAPI entrypoint
   - `api/` - API route definitions
   - `core/` - Core configuration
-  - `db/` - Supabase integrations
+  - `db/` - Supabase and AWS client integrations
   - `models/` - ORM and data models
   - `schemas/` - Pydantic schemas
   - `services/` - Business logic and services
   - `utils/` - Utility functions
+  - `worker/` - Enrollment worker (SQS consumer)
 - `tests/` - Unit and integration tests
 - `requirements.txt` - Python dependencies
 - `.gitignore` - Git ignore rules
@@ -38,10 +39,19 @@ This is the backend service for FaceIT.
 
 4. Setup environment variables by copying `.env.example` to `.env`
 
-5. Run the development server:
+5. Run the API server:
    ```bash
    uvicorn app.main:app --host 0.0.0.0 --reload
    ```
+
+6. Run the enrollment worker (separate terminal):
+   ```bash
+   python -m app.worker.enrollment_worker
+   ```
+
+   By default the worker exits after 3 consecutive empty polls (designed for scheduled ECS tasks). For local development, set `WORKER_MAX_EMPTY_POLLS=0` in `.env` to keep it running indefinitely.
+
+   > **Note:** The API server and worker are **separate processes**. `POST /jobs` inserts a DB row and enqueues an SQS message; the worker picks it up on its next poll cycle. You need both running for end-to-end job processing.
 
 ## Testing
 
@@ -60,5 +70,7 @@ Run with coverage report:
 pytest tests/ --cov=app --cov-report=term-missing
 ```
 
-## Notes
-- This is the initial project scaffold.
+Run worker smoke test (requires AWS credentials and a real SQS queue):
+```bash
+python tests/smoke_test_worker.py --user-id <existing-auth-user-uuid>
+```

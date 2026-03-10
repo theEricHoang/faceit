@@ -1,14 +1,14 @@
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from uuid import UUID
 from app.schemas.course import CreateClassRequest, CreateClassResponse, ListClassesResponse, ClassListItem, JoinClassRequest, JoinClassResponse, ClassDetailResponse, WithdrawClassResponse
+from app.schemas.image import UploadUrlResponse
 from app.schemas.user import CurrentUser
 from app.services.classes.class_query_service import ClassService as ClassQueryService
 from app.services.classes.class_service import ClassService, CreateClassError
 from app.services.enrollment_service import EnrollmentService, EnrollmentServiceError
-from app.schemas.student import ClassEnrolledStudentsResponse, StudentEnrollmentItem
-from app.services.classes.class_read_repository import ClassReadRepository, ClassReadError
-from app.api.deps import get_current_user
+from app.services.storage_service import StorageService
+from app.api.deps import get_current_user, require_instructor
 
 router = APIRouter(prefix="/classes", tags=["classes"])
 def get_query_service():
@@ -20,8 +20,8 @@ def get_class_service():
 def get_enrollment_service():
     return EnrollmentService()
 
-def get_read_repository():
-    return ClassReadRepository()
+def get_storage_service():
+    return StorageService()
 
 @router.get("", response_model=ListClassesResponse)
 async def list_classes(
@@ -142,6 +142,24 @@ async def join_class_by_code(
         )
     except EnrollmentServiceError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/{class_id}/attendance/upload-url", response_model=UploadUrlResponse, status_code=status.HTTP_200_OK)
+async def get_attendance_upload_url(
+    class_id: UUID,
+    current_user: CurrentUser = Depends(require_instructor),
+    query_service: ClassQueryService = Depends(get_query_service),
+    storage_service: StorageService = Depends(get_storage_service),
+) -> UploadUrlResponse:
+    """Generate a pre-signed URL for uploading a class attendance photo."""
+    has_access = query_service.instructor_has_class(current_user.user_id, class_id)
+    if not has_access:
+        raise HTTPException(status_code=404, detail="Class not found")
+
+    result = storage_service.generate_attendance_presigned_upload_url(
+        class_id=str(class_id),
+        instructor_id=str(current_user.user_id),
+    )
+    return UploadUrlResponse(**result)
 
 @router.delete("/{class_id}/withdraw", response_model=WithdrawClassResponse)
 async def withdraw_from_class(

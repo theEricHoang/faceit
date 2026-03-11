@@ -85,6 +85,7 @@ export interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   isHydrated: boolean;
+  needsFaceEnrollment: boolean;
 }
 
 export interface AuthActions {
@@ -92,6 +93,7 @@ export interface AuthActions {
   setTokens: (tokens: AuthTokens) => Promise<void>;
   clearAuth: () => Promise<void>;
   hydrate: () => Promise<void>;
+  setNeedsFaceEnrollment: (value: boolean) => void;
 }
 
 export type AuthStore = AuthState & AuthActions;

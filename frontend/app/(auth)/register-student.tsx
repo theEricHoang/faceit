@@ -73,7 +73,7 @@ export default function RegisterStudentScreen() {
         number: studentNumber || null,
         major: major || null,
       });
-      router.replace('/');
+      router.replace('/enroll-face');
     } catch (err: any) {
       setError(err.data?.detail || err.message || 'Registration failed. Please try again.');
     } finally {

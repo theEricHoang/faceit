@@ -16,7 +16,7 @@ TEST_BUCKET = "faceit-uploads-dev"
 
 def make_request(
     bucket: str = TEST_BUCKET,
-    key: str = f"enrollment-photos/{TEST_USER_ID}/abcdef01-2345-6789-abcd-ef0123456789.jpg",
+    key: str = f"enrollments/{TEST_USER_ID}/abcdef01-2345-6789-abcd-ef0123456789.jpg",
 ) -> CreateJobRequest:
     return CreateJobRequest(kind="ENROLLMENT", bucket=bucket, key=key)
 
@@ -176,11 +176,11 @@ class TestCreateEnrollmentJobValidation:
     @pytest.mark.asyncio
     @patch("app.services.job_service.get_settings")
     async def test_key_for_other_user_raises_create_job_error(self, mock_get_settings):
-        """Key must start with enrollment-photos/{authenticated_user_id}/."""
+        """Key must start with enrollments/{authenticated_user_id}/."""
         mock_get_settings.return_value = make_mock_settings()
 
         other_user_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-        key = f"enrollment-photos/{other_user_id}/abcdef01-2345-6789-abcd-ef0123456789.jpg"
+        key = f"enrollments/{other_user_id}/abcdef01-2345-6789-abcd-ef0123456789.jpg"
 
         service = JobService(client=MagicMock(), queue_service=MagicMock())
         with pytest.raises(CreateJobError, match="does not belong to the authenticated user"):

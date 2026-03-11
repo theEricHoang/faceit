@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, View, Text, Switch, Pressable, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useAuthStore } from '@/stores/auth-store';
 import { usersService, type UserProfileResponse } from '@/services/users-service';
+import { enrollmentService, type JobStatusResponse } from '@/services/enrollment-service';
 
 type Role = 'instructor' | 'student';
 
@@ -31,6 +33,8 @@ export function ProfilePage({
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [enrollmentStatus, setEnrollmentStatus] = useState<string | null>(null);
+  const [isEnrolling, setIsEnrolling] = useState<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -81,8 +85,95 @@ export function ProfilePage({
     ]);
   };
 
-  const handleUploadPhoto = () => {
-    Alert.alert('Coming Soon', 'Face image upload coming soon');
+  const handleUploadPhoto = async () => {
+    // For instructors, just show coming soon (profile photo, not face enrollment)
+    if (resolvedRole !== 'student') {
+      Alert.alert('Coming Soon', 'Profile photo upload coming soon');
+      return;
+    }
+
+    try {
+      // Request camera permissions
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Camera access is needed to take your face signature photo.'
+        );
+        return;
+      }
+
+      // Launch camera to take a selfie
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: 'images',
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+        cameraType: ImagePicker.CameraType.front,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.uri) {
+        return; // User cancelled
+      }
+
+      const imageUri = result.assets[0].uri;
+
+      // Confirm with user before enrolling
+      Alert.alert(
+        'Enroll Face',
+        'This photo will be used to recognize you during attendance. Continue?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Enroll',
+            onPress: () => performEnrollment(imageUri),
+          },
+        ]
+      );
+    } catch (e) {
+      console.error('Error launching camera:', e);
+      Alert.alert('Error', 'Failed to open camera. Please try again.');
+    }
+  };
+
+  const performEnrollment = async (imageUri: string) => {
+    setIsEnrolling(true);
+    setEnrollmentStatus('Starting enrollment...');
+
+    try {
+      const result = await enrollmentService.enrollFace(imageUri, (step, status) => {
+        setEnrollmentStatus(step);
+      });
+
+      if (result.status === 'SUCCEEDED') {
+        Alert.alert(
+          'Success!',
+          'Your face signature has been enrolled successfully. You can now be recognized for attendance.'
+        );
+      } else if (result.status === 'FAILED') {
+        const errorMsg = result.error_message || 'Unknown error';
+        let userMessage = 'Face enrollment failed. ';
+
+        if (errorMsg.includes('NO_FACE_DETECTED')) {
+          userMessage += 'No face was detected in the photo. Please ensure your face is clearly visible and well-lit.';
+        } else if (errorMsg.includes('MULTIPLE_FACES')) {
+          userMessage += 'Multiple faces were detected. Please take a photo with only your face visible.';
+        } else {
+          userMessage += 'Please try again with a clear photo of your face.';
+        }
+
+        Alert.alert('Enrollment Failed', userMessage);
+      }
+    } catch (e: any) {
+      console.error('Enrollment error:', e);
+      Alert.alert(
+        'Error',
+        e.message || 'Failed to enroll face signature. Please try again.'
+      );
+    } finally {
+      setIsEnrolling(false);
+      setEnrollmentStatus(null);
+    }
   };
 
   if (showSettings) {
@@ -181,10 +272,21 @@ export function ProfilePage({
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initials}</Text>
           </View>
-          <Pressable style={styles.primaryButton} onPress={handleUploadPhoto}>
-            <Text style={styles.primaryButtonText}>
-              {resolvedRole === 'student' ? 'Upload Face Images' : 'Update Profile Photo'}
-            </Text>
+          <Pressable
+            style={[styles.primaryButton, isEnrolling && styles.primaryButtonDisabled]}
+            onPress={handleUploadPhoto}
+            disabled={isEnrolling}
+          >
+            {isEnrolling ? (
+              <View style={styles.enrollingContainer}>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.primaryButtonText}>{enrollmentStatus || 'Enrolling...'}</Text>
+              </View>
+            ) : (
+              <Text style={styles.primaryButtonText}>
+                {resolvedRole === 'student' ? 'Update Face Signature' : 'Update Profile Photo'}
+              </Text>
+            )}
           </Pressable>
         </View>
 
@@ -364,9 +466,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
   },
+  primaryButtonDisabled: {
+    backgroundColor: '#666',
+  },
   primaryButtonText: {
     color: '#fff',
     fontWeight: '600',
+  },
+  enrollingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   roleButton: {
     flex: 1,

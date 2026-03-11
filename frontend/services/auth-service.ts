@@ -66,6 +66,9 @@ export async function registerStudent(
     type: response.type,
   });
 
+  // Flag that student needs to enroll face
+  useAuthStore.getState().setNeedsFaceEnrollment(true);
+
   return response;
 }
 

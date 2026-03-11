@@ -5,15 +5,16 @@ import { useAuthStore } from '@/stores/auth-store';
 export default function AuthLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const isHydrated = useAuthStore((state) => state.isHydrated);
+  const needsFaceEnrollment = useAuthStore((state) => state.needsFaceEnrollment);
 
   // Wait for auth state to hydrate
   if (!isHydrated) {
     return null;
   }
 
-  // Redirect authenticated users to home
+  // Redirect authenticated users - to face enrollment if needed, otherwise home
   if (isAuthenticated) {
-    return <Redirect href="/" />;
+    return <Redirect href={needsFaceEnrollment ? "/enroll-face" : "/"} />;
   }
 
   return (

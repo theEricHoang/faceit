@@ -15,12 +15,23 @@ class StorageService:
         self.s3_client = s3_client or get_s3_client()
 
     def generate_presigned_upload_url(
-        self, user_id: str, file_extension: str = "jpg"
+        self, user_id: str, job_id: str, file_extension: str = "jpg"
     ) -> dict:
-        """Generate a pre-signed URL for uploading an enrollment photo."""
-        key = f"enrollment-photos/{user_id}/{uuid.uuid4()}.{file_extension}"
+        """Generate a pre-signed URL for uploading an enrollment photo.
+        
+        Args:
+            user_id: The user ID who is enrolling.
+            job_id: The job ID for this enrollment (used in S3 key).
+            file_extension: File extension (default: jpg).
+        
+        Returns:
+            Dict with upload_url, bucket, and key.
+        """
+        # Key format: enrollments/{user_id}/{job_id}.{extension}
+        key = f"enrollments/{user_id}/{job_id}.{file_extension}"
 
-        content_type = "image/jpeg" if file_extension == "jpg" else f"image/{file_extension}"
+        # Map file extension to proper MIME type
+        content_type = "image/jpeg" if file_extension in ("jpg", "jpeg") else f"image/{file_extension}"
 
         upload_url = self.s3_client.generate_presigned_url(
             "put_object",

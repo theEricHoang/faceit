@@ -16,6 +16,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   user: null,
   isAuthenticated: false,
   isHydrated: false,
+  needsFaceEnrollment: false,
 
   // Actions
   setUser: async (user: User) => {
@@ -33,7 +34,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   clearAuth: async () => {
     await clearAllTokens();
-    set({ user: null, isAuthenticated: false });
+    set({ user: null, isAuthenticated: false, needsFaceEnrollment: false });
+  },
+
+  setNeedsFaceEnrollment: (value: boolean) => {
+    set({ needsFaceEnrollment: value });
   },
 
   hydrate: async () => {

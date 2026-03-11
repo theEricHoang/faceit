@@ -31,10 +31,9 @@ function AuthHydration({ children }: { children: React.ReactNode }) {
     if (!isAuthenticated && !inAuthGroup) {
       // Redirect to login if not authenticated and not already in auth group
       router.replace('/(auth)/login');
-    } else if (isAuthenticated && inAuthGroup) {
-      // Redirect to home if authenticated and in auth group
-      router.replace('/');
     }
+    // Note: Don't auto-redirect from auth group here - let (auth)/_layout.tsx handle it
+    // This prevents race conditions during registration flow
   }, [isHydrated, isAuthenticated, segments, router]);
 
   if (!isHydrated) {

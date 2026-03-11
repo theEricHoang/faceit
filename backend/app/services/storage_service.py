@@ -33,8 +33,6 @@ class StorageService:
         # Map file extension to proper MIME type
         content_type = "image/jpeg" if file_extension in ("jpg", "jpeg") else f"image/{file_extension}"
 
-        content_type = "image/jpeg" if file_extension == "jpg" else f"image/{file_extension}"
-
         upload_url = self.s3_client.generate_presigned_url(
             "put_object",
             Params={

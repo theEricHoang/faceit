@@ -168,6 +168,76 @@ class JobService:
         except Exception:
             logger.exception("Failed to rollback job row %s", job_id)
 
+    def get_enrollment_job_status(self, job_id: str, owner_user_id: str) -> dict:
+        """Get the status of an enrollment job.
+
+        Args:
+            job_id: The job's UUID as a string.
+            owner_user_id: The owner's user ID.
+
+        Returns:
+            Dict with id, kind, status, error_message, and updated_at.
+
+        Raises:
+            JobNotFoundError: If the job does not exist or does not belong to the user.
+        """
+        try:
+            result = (
+                self.client.table("jobs")
+                .select("id, kind, status, error_message, updated_at")
+                .eq("id", job_id)
+                .eq("owner_user_id", owner_user_id)
+                .single()
+                .execute()
+            )
+        except Exception as e:
+            raise JobNotFoundError(f"Enrollment job {job_id} not found") from e
+
+        if not result.data:
+            raise JobNotFoundError(f"Enrollment job {job_id} not found")
+
+        return result.data
+
+    def create_pending_enrollment_job(
+        self, job_id: str, user_id: str, bucket: str, key: str
+    ) -> dict:
+        """Create a PENDING enrollment job in the database.
+
+        Args:
+            job_id: The UUID for the new job.
+            user_id: The owner's user ID.
+            bucket: S3 bucket where the photo will be uploaded.
+            key: S3 object key for the photo.
+
+        Returns:
+            The created job row data.
+
+        Raises:
+            CreateJobError: If the job could not be created.
+        """
+        try:
+            result = (
+                self.client.table("jobs")
+                .insert(
+                    {
+                        "id": job_id,
+                        "kind": "ENROLLMENT",
+                        "status": "PENDING",
+                        "owner_user_id": user_id,
+                        "s3_bucket": bucket,
+                        "s3_key": key,
+                    }
+                )
+                .execute()
+            )
+            if not result.data:
+                raise CreateJobError("Failed to create enrollment job")
+            return result.data[0]
+        except CreateJobError:
+            raise
+        except Exception as e:
+            raise CreateJobError(f"Failed to create enrollment job: {str(e)}") from e
+
     async def enqueue_enrollment_job(self, job_id: str, user_id: str) -> CreateJobResponse:
         """Enqueue an existing PENDING enrollment job.
 

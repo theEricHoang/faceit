@@ -1,19 +1,19 @@
 from fastapi import APIRouter, Depends, status, HTTPException
 from uuid import UUID
 
-from app.api.deps import get_current_user
-from app.schemas.image import UploadUrlResponse, JobStatusResponse
-from app.schemas.job import CreateJobResponse
+from app.api.deps import require_student
+from app.schemas.image import UploadUrlResponse
+from app.schemas.job import CreateJobResponse, JobStatusResponse
 from app.schemas.user import CurrentUser
 from app.services.storage_service import StorageService
-from app.services.job_service import JobService, CreateJobError
+from app.services.job_service import JobService, CreateJobError, JobNotFoundError
 
 router = APIRouter(prefix="/enrollments", tags=["enrollments"])
 
 
 @router.post("/upload-url", response_model=UploadUrlResponse, status_code=status.HTTP_200_OK)
 async def get_enrollment_upload_url(
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_student),
 ) -> UploadUrlResponse:
     """Generate a pre-signed URL for uploading an enrollment photo.
     
@@ -43,23 +43,12 @@ async def get_enrollment_upload_url(
         )
         
         # Create a PENDING job with the bucket and key information
-        result = (
-            job_service.client.table("jobs")
-            .insert(
-                {
-                    "id": str(job_id),
-                    "kind": "ENROLLMENT",
-                    "status": "PENDING",
-                    "owner_user_id": str(current_user.user_id),
-                    "s3_bucket": url_result["bucket"],
-                    "s3_key": url_result["key"],
-                }
-            )
-            .execute()
+        job_service.create_pending_enrollment_job(
+            job_id=str(job_id),
+            user_id=str(current_user.user_id),
+            bucket=url_result["bucket"],
+            key=url_result["key"],
         )
-        
-        if not result.data:
-            raise Exception("Failed to create enrollment job")
         
         return UploadUrlResponse(
             upload_url=url_result["upload_url"],
@@ -81,7 +70,7 @@ async def get_enrollment_upload_url(
 )
 async def process_enrollment_job(
     job_id: UUID,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_student),
 ) -> CreateJobResponse:
     """Finalize an enrollment job and enqueue it for processing.
     
@@ -132,7 +121,7 @@ async def process_enrollment_job(
 )
 async def get_enrollment_job_status(
     job_id: UUID,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_student),
 ) -> JobStatusResponse:
     """Get the status of an enrollment job.
     
@@ -152,30 +141,21 @@ async def get_enrollment_job_status(
     job_service = JobService()
     
     try:
-        result = (
-            job_service.client.table("jobs")
-            .select("id, status, error_message")
-            .eq("id", str(job_id))
-            .eq("owner_user_id", str(current_user.user_id))
-            .single()
-            .execute()
+        job = job_service.get_enrollment_job_status(
+            str(job_id), str(current_user.user_id)
         )
-        
-        if not result.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Enrollment job not found",
-            )
-        
-        job = result.data
         return JobStatusResponse(
             job_id=UUID(job["id"]),
             status=job["status"],
+            kind=job["kind"],
             error_message=job.get("error_message"),
+            updated_at=job["updated_at"],
         )
-        
-    except HTTPException:
-        raise
+    except JobNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Enrollment job not found",
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -8,9 +8,3 @@ class UploadUrlResponse(BaseModel):
     bucket: str
     key: str
     job_id: UUID | None = None
-
-
-class JobStatusResponse(BaseModel):
-    job_id: UUID
-    status: str
-    error_message: str | None = None

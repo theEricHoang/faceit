@@ -1,6 +1,7 @@
 
+from uuid import UUID, uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from uuid import UUID
 from app.schemas.course import CreateClassRequest, CreateClassResponse, ListClassesResponse, ClassListItem, JoinClassRequest, JoinClassResponse, ClassDetailResponse, WithdrawClassResponse
 from app.schemas.image import UploadUrlResponse
 from app.schemas.user import CurrentUser
@@ -8,20 +9,24 @@ from app.services.classes.class_query_service import ClassService as ClassQueryS
 from app.services.classes.class_service import ClassService, CreateClassError
 from app.services.enrollment_service import EnrollmentService, EnrollmentServiceError
 from app.services.storage_service import StorageService
-from app.api.deps import get_current_user, require_instructor
+from app.services.job_service import JobService, CreateJobError
+from app.services.attendance_service import AttendanceService, CreateSessionError
+from app.api.deps import (
+    get_current_user,
+    get_attendance_service,
+    get_job_service,
+    get_query_service,
+    get_storage_service,
+    require_instructor,
+)
 
 router = APIRouter(prefix="/classes", tags=["classes"])
-def get_query_service():
-    return ClassQueryService()
 
 def get_class_service():
     return ClassService()
 
 def get_enrollment_service():
     return EnrollmentService()
-
-def get_storage_service():
-    return StorageService()
 
 @router.get("", response_model=ListClassesResponse)
 async def list_classes(
@@ -149,17 +154,58 @@ async def get_attendance_upload_url(
     current_user: CurrentUser = Depends(require_instructor),
     query_service: ClassQueryService = Depends(get_query_service),
     storage_service: StorageService = Depends(get_storage_service),
+    job_service: JobService = Depends(get_job_service),
+    attendance_service: AttendanceService = Depends(get_attendance_service),
 ) -> UploadUrlResponse:
-    """Generate a pre-signed URL for uploading a class attendance photo."""
+    """Generate a pre-signed URL for uploading a class attendance photo.
+
+    Also creates a PENDING job and an attendance session linked to it.
+    """
     has_access = query_service.instructor_has_class(current_user.user_id, class_id)
     if not has_access:
         raise HTTPException(status_code=404, detail="Class not found")
+
+    job_id = uuid4()
 
     result = storage_service.generate_attendance_presigned_upload_url(
         class_id=str(class_id),
         instructor_id=str(current_user.user_id),
     )
-    return UploadUrlResponse(**result)
+
+    try:
+        job_service.create_pending_attendance_job(
+            job_id=str(job_id),
+            user_id=str(current_user.user_id),
+            bucket=result["bucket"],
+            key=result["key"],
+        )
+    except CreateJobError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+    try:
+        session_row = attendance_service.create_session(
+            class_id=class_id,
+            instructor_id=current_user.user_id,
+            job_id=job_id,
+        )
+    except CreateSessionError as e:
+        # Rollback the orphaned job row
+        job_service.rollback_job(str(job_id))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+    return UploadUrlResponse(
+        upload_url=result["upload_url"],
+        bucket=result["bucket"],
+        key=result["key"],
+        job_id=job_id,
+        session_id=session_row["id"],
+    )
 
 @router.delete("/{class_id}/withdraw", response_model=WithdrawClassResponse)
 async def withdraw_from_class(

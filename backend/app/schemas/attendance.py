@@ -16,6 +16,13 @@ class PresentStudent(BaseModel):
     confidence: Optional[float] = None
 
 
+class CreateAttendanceJobResponse(BaseModel):
+    """Response for attendance job creation (process endpoint)."""
+
+    job_id: UUID
+    session_id: UUID
+
+
 class AttendanceSessionResponse(BaseModel):
     """Display-ready attendance session report."""
 

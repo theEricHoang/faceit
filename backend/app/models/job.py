@@ -9,6 +9,7 @@ class JobStatus(str, Enum):
     """Job status enum matching database constraint."""
 
     PENDING = "PENDING"
+    QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
@@ -18,6 +19,7 @@ class JobKind(str, Enum):
     """Job kind enum matching database constraint."""
 
     ENROLLMENT = "ENROLLMENT"
+    ATTENDANCE = "ATTENDANCE"
 
 
 class Job(BaseModel):

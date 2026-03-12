@@ -27,16 +27,93 @@ class SessionNotFoundError(AttendanceServiceError):
     pass
 
 
+class CreateSessionError(AttendanceServiceError):
+    """Raised when a new attendance session cannot be created."""
+
+    pass
+
+
 # ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
 
 
 class AttendanceService:
-    """Reads attendance session data from Supabase."""
+    """Reads attendance session data from Supabase and creates new sessions."""
 
     def __init__(self, client: Client | None = None):
         self.client = client or get_supabase_client()
+
+    def create_session(self, class_id: UUID, instructor_id: UUID, job_id: UUID) -> dict:
+        """Create an attendance session row linked to a job.
+
+        Args:
+            class_id: The class for which attendance is being taken.
+            instructor_id: The instructor running the session.
+            job_id: The associated processing job ID.
+
+        Returns:
+            The created row dict (including ``id`` as the session_id).
+
+        Raises:
+            CreateSessionError: If the DB insert fails.
+        """
+        try:
+            result = (
+                self.client
+                .table("attendance_sessions")
+                .insert(
+                    {
+                        "class_id": str(class_id),
+                        "instructor_id": str(instructor_id),
+                        "job_id": str(job_id),
+                    }
+                )
+                .execute()
+            )
+            if not result.data:
+                raise CreateSessionError("Failed to create attendance session")
+            return result.data[0]
+        except CreateSessionError:
+            raise
+        except Exception as e:
+            logger.exception("Failed to create attendance session")
+            raise CreateSessionError(
+                f"Failed to create attendance session: {e}"
+            ) from e
+
+    def get_session_id_for_job(self, job_id: UUID) -> str:
+        """Look up the attendance session ID linked to a job.
+
+        Args:
+            job_id: The job ID to look up.
+
+        Returns:
+            The session ID as a string.
+
+        Raises:
+            SessionNotFoundError: If no session is found for the job.
+        """
+        try:
+            result = (
+                self.client
+                .table("attendance_sessions")
+                .select("id")
+                .eq("job_id", str(job_id))
+                .single()
+                .execute()
+            )
+        except Exception as e:
+            raise SessionNotFoundError(
+                f"No attendance session found for job {job_id}"
+            ) from e
+
+        if not result.data:
+            raise SessionNotFoundError(
+                f"No attendance session found for job {job_id}"
+            )
+
+        return result.data["id"]
 
     def get_session_report(self, session_id: UUID, class_id: UUID) -> dict:
         """Return a display-ready attendance report for a single session.

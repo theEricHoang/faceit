@@ -1,4 +1,4 @@
-"""FastAPI dependencies for authentication and authorization."""
+"""FastAPI dependencies for authentication, authorization, and service factories."""
 
 from uuid import UUID
 
@@ -123,3 +123,36 @@ async def require_student(
             detail="Student access required",
         )
     return current_user
+
+
+# ---------------------------------------------------------------------------
+# Service factory dependencies
+# ---------------------------------------------------------------------------
+
+
+def get_query_service():
+    """Factory for ClassQueryService."""
+    from app.services.classes.class_query_service import ClassService as ClassQueryService
+
+    return ClassQueryService()
+
+
+def get_job_service():
+    """Factory for JobService."""
+    from app.services.job_service import JobService
+
+    return JobService()
+
+
+def get_attendance_service():
+    """Factory for AttendanceService."""
+    from app.services.attendance_service import AttendanceService
+
+    return AttendanceService()
+
+
+def get_storage_service():
+    """Factory for StorageService."""
+    from app.services.storage_service import StorageService
+
+    return StorageService()

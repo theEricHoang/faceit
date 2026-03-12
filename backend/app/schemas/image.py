@@ -7,4 +7,6 @@ class UploadUrlResponse(BaseModel):
     upload_url: str
     bucket: str
     key: str
-    job_id: UUID | None = None
+    job_id: UUID
+    session_id: UUID | None = None
+

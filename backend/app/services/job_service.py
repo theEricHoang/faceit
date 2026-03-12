@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.db.supabase import get_supabase_client
 from app.models.job import Job, JobKind, JobStatus
 from app.schemas.job import CreateJobRequest, CreateJobResponse, JobStatusResponse
+from app.schemas.attendance import CreateAttendanceJobResponse
 from app.services.queue_service import QueueService, QueueServiceError
 
 logger = logging.getLogger("uvicorn.error")
@@ -27,6 +28,18 @@ class CreateJobError(JobServiceError):
 
 
 class JobNotFoundError(JobServiceError):
+    pass
+
+
+class JobNotPendingError(JobServiceError):
+    """Raised when a job is not in PENDING status."""
+
+    pass
+
+
+class JobOwnershipError(JobServiceError):
+    """Raised when a job does not belong to the authenticated user."""
+
     pass
 
 
@@ -109,13 +122,13 @@ class JobService:
         except QueueServiceError as e:
             # SQS failed — rollback the jobs row
             if job_id:
-                self._rollback_job(job_id)
+                self.rollback_job(job_id)
             raise CreateJobError(f"Failed to enqueue job: {str(e)}") from e
         except CreateJobError:
             raise
         except Exception as e:
             if job_id:
-                self._rollback_job(job_id)
+                self.rollback_job(job_id)
             raise CreateJobError(f"Failed to create job: {str(e)}") from e
 
     async def get_job_status(
@@ -161,7 +174,7 @@ class JobService:
             updated_at=row["updated_at"],
         )
 
-    def _rollback_job(self, job_id: str) -> None:
+    def rollback_job(self, job_id: str) -> None:
         """Delete a jobs row on failure. Best-effort; errors are logged but not raised."""
         try:
             self.client.table("jobs").delete().eq("id", job_id).execute()
@@ -291,6 +304,126 @@ class JobService:
             
             return CreateJobResponse(job_id=job_id)
             
+        except QueueServiceError as e:
+            raise CreateJobError(f"Failed to enqueue job: {str(e)}") from e
+        except CreateJobError:
+            raise
+        except Exception as e:
+            raise CreateJobError(f"Failed to enqueue job: {str(e)}") from e
+
+    def create_pending_attendance_job(
+        self, job_id: str, user_id: str, bucket: str, key: str
+    ) -> dict:
+        """Create a PENDING attendance job in the database.
+
+        Args:
+            job_id: The UUID for the new job.
+            user_id: The owner's user ID.
+            bucket: S3 bucket where the photo will be uploaded.
+            key: S3 object key for the photo.
+
+        Returns:
+            The created job row data.
+
+        Raises:
+            CreateJobError: If the job could not be created.
+        """
+        try:
+            result = (
+                self.client.table("jobs")
+                .insert(
+                    {
+                        "id": job_id,
+                        "kind": JobKind.ATTENDANCE,
+                        "status": JobStatus.PENDING,
+                        "owner_user_id": user_id,
+                        "s3_bucket": bucket,
+                        "s3_key": key,
+                    }
+                )
+                .execute()
+            )
+            if not result.data:
+                raise CreateJobError("Failed to create attendance job")
+            return result.data[0]
+        except CreateJobError:
+            raise
+        except Exception as e:
+            raise CreateJobError(f"Failed to create attendance job: {str(e)}") from e
+
+    def enqueue_attendance_job(
+        self, job_id: str, user_id: str, class_id: str, session_id: str
+    ) -> CreateAttendanceJobResponse:
+        """Enqueue an existing PENDING attendance job.
+
+        Validates ownership and PENDING status, transitions the job to
+        QUEUED, and sends an SQS message to the attendance queue.
+
+        Args:
+            job_id: The job ID to enqueue (must exist and be PENDING).
+            user_id: The ID of the job owner (for validation).
+            class_id: The class associated with this attendance session.
+            session_id: The attendance session ID linked to this job.
+
+        Returns:
+            CreateAttendanceJobResponse with job_id and session_id.
+
+        Raises:
+            JobNotFoundError: If the job doesn't exist.
+            JobNotPendingError: If the job is not in PENDING status.
+            JobOwnershipError: If the job doesn't belong to the user.
+            CreateJobError: If SQS send or other operations fail.
+        """
+        try:
+            settings = get_settings()
+
+            # Retrieve the job
+            try:
+                result = (
+                    self.client.table("jobs")
+                    .select("*")
+                    .eq("id", job_id)
+                    .single()
+                    .execute()
+                )
+            except Exception as e:
+                raise JobNotFoundError(f"Job {job_id} not found") from e
+
+            job = result.data
+            if job.get("status") != "PENDING":
+                raise JobNotPendingError(
+                    f"Job is not in PENDING status (current: {job.get('status')})"
+                )
+
+            if job.get("owner_user_id") != user_id:
+                raise JobOwnershipError("Job does not belong to the authenticated user")
+
+            # Send SQS message
+            self.queue_service.send_message(
+                queue_url=settings.sqs_attendance_queue_url,
+                message_body={
+                    "job_id": job_id,
+                    "user_id": user_id,
+                    "class_id": class_id,
+                    "s3_bucket": job.get("s3_bucket"),
+                    "s3_key": job.get("s3_key"),
+                },
+            )
+
+            # Transition job status to QUEUED after successful SQS send
+            try:
+                self.client.table("jobs").update(
+                    {"status": JobStatus.QUEUED}
+                ).eq("id", job_id).execute()
+            except Exception:
+                logger.exception("Failed to update job %s status to QUEUED", job_id)
+
+            return CreateAttendanceJobResponse(
+                job_id=job_id, session_id=session_id
+            )
+
+        except (JobNotFoundError, JobNotPendingError, JobOwnershipError):
+            raise
         except QueueServiceError as e:
             raise CreateJobError(f"Failed to enqueue job: {str(e)}") from e
         except CreateJobError:

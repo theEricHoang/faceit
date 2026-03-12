@@ -1,4 +1,4 @@
-"""Unit tests for AttendanceService.get_session_report."""
+"""Unit tests for AttendanceService."""
 
 from unittest.mock import MagicMock
 from uuid import UUID
@@ -8,6 +8,7 @@ import pytest
 from app.services.attendance_service import (
     AttendanceService,
     AttendanceServiceError,
+    CreateSessionError,
     SessionNotFoundError,
 )
 
@@ -183,3 +184,99 @@ class TestGetSessionReport:
 
         with pytest.raises(AttendanceServiceError, match="connection lost"):
             service.get_session_report(SESSION_ID, CLASS_ID)
+
+
+# ---------------------------------------------------------------------------
+# CreateSession Tests
+# ---------------------------------------------------------------------------
+
+JOB_ID = UUID("33333333-3333-3333-3333-333333333333")
+INSTRUCTOR_ID = UUID("44444444-4444-4444-4444-444444444444")
+
+
+class TestCreateSession:
+    """Tests for AttendanceService.create_session."""
+
+    def test_happy_path_creates_session_row(self):
+        """Inserts row with correct class_id, instructor_id, job_id. Returns row with id."""
+        mock_client = MagicMock()
+        created_row = {
+            "id": "55555555-5555-5555-5555-555555555555",
+            "class_id": str(CLASS_ID),
+            "instructor_id": str(INSTRUCTOR_ID),
+            "job_id": str(JOB_ID),
+        }
+        mock_client.table.return_value.insert.return_value.execute.return_value = MockResponse(
+            data=[created_row]
+        )
+
+        service = AttendanceService(client=mock_client)
+        result = service.create_session(
+            class_id=CLASS_ID, instructor_id=INSTRUCTOR_ID, job_id=JOB_ID
+        )
+
+        assert result["id"] == "55555555-5555-5555-5555-555555555555"
+        assert result["class_id"] == str(CLASS_ID)
+        assert result["instructor_id"] == str(INSTRUCTOR_ID)
+        assert result["job_id"] == str(JOB_ID)
+
+        # Verify insert was called on attendance_sessions table
+        mock_client.table.assert_called_with("attendance_sessions")
+        insert_args = mock_client.table.return_value.insert.call_args[0][0]
+        assert insert_args["class_id"] == str(CLASS_ID)
+        assert insert_args["instructor_id"] == str(INSTRUCTOR_ID)
+        assert insert_args["job_id"] == str(JOB_ID)
+
+    def test_db_error_raises_create_session_error(self):
+        """DB exception is wrapped in CreateSessionError."""
+        mock_client = MagicMock()
+        mock_client.table.return_value.insert.return_value.execute.side_effect = Exception(
+            "DB connection error"
+        )
+
+        service = AttendanceService(client=mock_client)
+        with pytest.raises(CreateSessionError, match="Failed to create attendance session"):
+            service.create_session(
+                class_id=CLASS_ID, instructor_id=INSTRUCTOR_ID, job_id=JOB_ID
+            )
+
+
+# ---------------------------------------------------------------------------
+# GetSessionIdForJob Tests
+# ---------------------------------------------------------------------------
+
+
+class TestGetSessionIdForJob:
+    """Tests for AttendanceService.get_session_id_for_job."""
+
+    def test_happy_path_returns_session_id(self):
+        """Returns the session ID when a matching row exists."""
+        mock_client = MagicMock()
+        chain = MagicMock()
+        chain.select.return_value = chain
+        chain.eq.return_value = chain
+        chain.single.return_value = chain
+        chain.execute.return_value = MockResponse(data={"id": str(SESSION_ID)})
+        mock_client.table.return_value = chain
+
+        service = AttendanceService(client=mock_client)
+        result = service.get_session_id_for_job(JOB_ID)
+
+        assert result == str(SESSION_ID)
+        mock_client.table.assert_called_with("attendance_sessions")
+        chain.select.assert_called_once_with("id")
+        chain.eq.assert_called_once_with("job_id", str(JOB_ID))
+
+    def test_not_found_raises_session_not_found_error(self):
+        """Raises SessionNotFoundError when .single() throws (no row)."""
+        mock_client = MagicMock()
+        chain = MagicMock()
+        chain.select.return_value = chain
+        chain.eq.return_value = chain
+        chain.single.return_value = chain
+        chain.execute.side_effect = Exception("Row not found")
+        mock_client.table.return_value = chain
+
+        service = AttendanceService(client=mock_client)
+        with pytest.raises(SessionNotFoundError, match="No attendance session found"):
+            service.get_session_id_for_job(JOB_ID)

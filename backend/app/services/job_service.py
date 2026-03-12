@@ -153,7 +153,7 @@ class JobService:
         try:
             result = (
                 self.client.table("jobs")
-                .select("id, kind, status, error_message, updated_at")
+                .select("id, kind, status, error_message, present_count, unknown_count, updated_at")
                 .eq("id", str(job_id))
                 .eq("owner_user_id", str(owner_user_id))
                 .single()
@@ -171,6 +171,8 @@ class JobService:
             status=row["status"],
             kind=row["kind"],
             error_message=row["error_message"],
+            present_count=row.get("present_count"),
+            unknown_count=row.get("unknown_count"),
             updated_at=row["updated_at"],
         )
 
@@ -197,7 +199,7 @@ class JobService:
         try:
             result = (
                 self.client.table("jobs")
-                .select("id, kind, status, error_message, updated_at")
+                .select("id, kind, status, error_message, present_count, unknown_count, updated_at")
                 .eq("id", job_id)
                 .eq("owner_user_id", owner_user_id)
                 .single()

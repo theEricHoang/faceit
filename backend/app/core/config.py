@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     # AWS SQS configuration
     sqs_enrollment_queue_url: Optional[str] = None
+    sqs_attendance_queue_url: Optional[str] = None
     sqs_max_messages: int = 5
     sqs_wait_time_seconds: int = 10
 

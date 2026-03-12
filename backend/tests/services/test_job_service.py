@@ -4,14 +4,17 @@ from uuid import UUID
 import pytest
 
 from app.schemas.job import CreateJobRequest
-from app.services.job_service import JobService, CreateJobError, JobNotFoundError
+from app.services.job_service import JobService, CreateJobError, JobNotFoundError, JobNotPendingError, JobOwnershipError
 from app.services.queue_service import QueueServiceError
 
 
 TEST_USER_ID = "12345678-1234-1234-1234-123456789012"
 TEST_JOB_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 TEST_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/123456789/faceit-enrollment-queue"
+TEST_ATTENDANCE_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/123456789/faceit-attendance-queue"
 TEST_BUCKET = "faceit-uploads-dev"
+TEST_CLASS_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+TEST_SESSION_ID = "99999999-9999-9999-9999-999999999999"
 
 
 def make_request(
@@ -322,3 +325,300 @@ class TestGetJobStatus:
         service = JobService(client=mock_client, queue_service=MagicMock())
         with pytest.raises(JobNotFoundError, match="not found"):
             await service.get_job_status(UUID(TEST_JOB_ID), other_user_id)
+
+
+# ===========================================================================
+# Attendance Job Tests
+# ===========================================================================
+
+
+class TestCreatePendingAttendanceJob:
+    """Tests for JobService.create_pending_attendance_job."""
+
+    def test_happy_path_creates_pending_attendance_job(self):
+        """Inserts row with kind=ATTENDANCE, status=PENDING and returns job row."""
+        mock_client = MagicMock()
+        mock_client.table.return_value.insert.return_value.execute.return_value = MagicMock(
+            data=[{
+                "id": TEST_JOB_ID,
+                "kind": "ATTENDANCE",
+                "status": "PENDING",
+                "owner_user_id": TEST_USER_ID,
+                "s3_bucket": TEST_BUCKET,
+                "s3_key": "attendance-photos/test.jpg",
+            }]
+        )
+
+        service = JobService(client=mock_client, queue_service=MagicMock())
+        result = service.create_pending_attendance_job(
+            job_id=TEST_JOB_ID,
+            user_id=TEST_USER_ID,
+            bucket=TEST_BUCKET,
+            key="attendance-photos/test.jpg",
+        )
+
+        assert result["id"] == TEST_JOB_ID
+        assert result["kind"] == "ATTENDANCE"
+        assert result["status"] == "PENDING"
+        assert result["owner_user_id"] == TEST_USER_ID
+        assert result["s3_bucket"] == TEST_BUCKET
+
+        # Verify the insert was called with correct data
+        insert_args = mock_client.table.return_value.insert.call_args[0][0]
+        assert insert_args["kind"] == "ATTENDANCE"
+        assert insert_args["status"] == "PENDING"
+        assert insert_args["owner_user_id"] == TEST_USER_ID
+        assert insert_args["s3_bucket"] == TEST_BUCKET
+        assert insert_args["s3_key"] == "attendance-photos/test.jpg"
+
+    def test_db_insert_fails_raises_create_job_error(self):
+        """DB exception is wrapped in CreateJobError."""
+        mock_client = MagicMock()
+        mock_client.table.return_value.insert.return_value.execute.side_effect = Exception(
+            "DB connection error"
+        )
+
+        service = JobService(client=mock_client, queue_service=MagicMock())
+        with pytest.raises(CreateJobError, match="Failed to create attendance job"):
+            service.create_pending_attendance_job(
+                job_id=TEST_JOB_ID,
+                user_id=TEST_USER_ID,
+                bucket=TEST_BUCKET,
+                key="attendance-photos/test.jpg",
+            )
+
+
+def _make_enqueue_attendance_mock_client(
+    job_data=None,
+    job_select_side_effect=None,
+):
+    """Build a mock Supabase client for enqueue_attendance_job tests.
+
+    Since enqueue_attendance_job no longer queries attendance_sessions,
+    only the jobs table routing is needed.
+    """
+    client = MagicMock()
+
+    # Jobs select chain
+    job_chain = MagicMock()
+    job_chain.select.return_value = job_chain
+    job_chain.eq.return_value = job_chain
+    job_chain.single.return_value = job_chain
+
+    if job_select_side_effect:
+        job_chain.execute.side_effect = job_select_side_effect
+    else:
+        job_chain.execute.return_value = MagicMock(data=job_data)
+
+    # Update chain for QUEUED status transition
+    update_chain = MagicMock()
+    update_chain.eq.return_value = update_chain
+    update_chain.execute.return_value = MagicMock(data=[])
+    job_chain.update.return_value = update_chain
+
+    client.table.return_value = job_chain
+    return client
+
+
+class TestEnqueueAttendanceJob:
+    """Tests for JobService.enqueue_attendance_job."""
+
+    @patch("app.services.job_service.get_settings")
+    def test_happy_path_enqueues_and_returns_response(self, mock_get_settings):
+        """Retrieves PENDING job, sends SQS, returns response."""
+        mock_get_settings.return_value = MagicMock(
+            sqs_attendance_queue_url=TEST_ATTENDANCE_QUEUE_URL,
+        )
+
+        mock_client = _make_enqueue_attendance_mock_client(
+            job_data={
+                "id": TEST_JOB_ID,
+                "status": "PENDING",
+                "owner_user_id": TEST_USER_ID,
+                "s3_bucket": TEST_BUCKET,
+                "s3_key": "attendance-photos/test.jpg",
+            },
+        )
+        mock_queue = MagicMock()
+        mock_queue.send_message.return_value = {"MessageId": "msg-1"}
+
+        service = JobService(client=mock_client, queue_service=mock_queue)
+        result = service.enqueue_attendance_job(
+            job_id=TEST_JOB_ID,
+            user_id=TEST_USER_ID,
+            class_id=TEST_CLASS_ID,
+            session_id=TEST_SESSION_ID,
+        )
+
+        assert str(result.job_id) == TEST_JOB_ID
+        assert str(result.session_id) == TEST_SESSION_ID
+
+    @patch("app.services.job_service.get_settings")
+    def test_sends_sqs_with_correct_body(self, mock_get_settings):
+        """Verifies message body contains job_id, user_id, class_id, s3_bucket, s3_key."""
+        mock_get_settings.return_value = MagicMock(
+            sqs_attendance_queue_url=TEST_ATTENDANCE_QUEUE_URL,
+        )
+
+        mock_client = _make_enqueue_attendance_mock_client(
+            job_data={
+                "id": TEST_JOB_ID,
+                "status": "PENDING",
+                "owner_user_id": TEST_USER_ID,
+                "s3_bucket": TEST_BUCKET,
+                "s3_key": "attendance-photos/test.jpg",
+            },
+        )
+        mock_queue = MagicMock()
+
+        service = JobService(client=mock_client, queue_service=mock_queue)
+        service.enqueue_attendance_job(
+            job_id=TEST_JOB_ID,
+            user_id=TEST_USER_ID,
+            class_id=TEST_CLASS_ID,
+            session_id=TEST_SESSION_ID,
+        )
+
+        mock_queue.send_message.assert_called_once()
+        call_kwargs = mock_queue.send_message.call_args.kwargs
+        assert call_kwargs["queue_url"] == TEST_ATTENDANCE_QUEUE_URL
+        body = call_kwargs["message_body"]
+        assert body["job_id"] == TEST_JOB_ID
+        assert body["user_id"] == TEST_USER_ID
+        assert body["class_id"] == TEST_CLASS_ID
+        assert body["s3_bucket"] == TEST_BUCKET
+        assert body["s3_key"] == "attendance-photos/test.jpg"
+
+    @patch("app.services.job_service.get_settings")
+    def test_transitions_job_to_queued_after_sqs_send(self, mock_get_settings):
+        """After successful SQS send, job status should be updated to QUEUED."""
+        mock_get_settings.return_value = MagicMock(
+            sqs_attendance_queue_url=TEST_ATTENDANCE_QUEUE_URL,
+        )
+
+        mock_client = _make_enqueue_attendance_mock_client(
+            job_data={
+                "id": TEST_JOB_ID,
+                "status": "PENDING",
+                "owner_user_id": TEST_USER_ID,
+                "s3_bucket": TEST_BUCKET,
+                "s3_key": "attendance-photos/test.jpg",
+            },
+        )
+        mock_queue = MagicMock()
+        mock_queue.send_message.return_value = {"MessageId": "msg-1"}
+
+        service = JobService(client=mock_client, queue_service=mock_queue)
+        service.enqueue_attendance_job(
+            job_id=TEST_JOB_ID,
+            user_id=TEST_USER_ID,
+            class_id=TEST_CLASS_ID,
+            session_id=TEST_SESSION_ID,
+        )
+
+        # Verify update was called with QUEUED status
+        job_table = mock_client.table.return_value
+        job_table.update.assert_called_once()
+        update_arg = job_table.update.call_args[0][0]
+        assert update_arg["status"] == "QUEUED"
+
+    @patch("app.services.job_service.get_settings")
+    def test_job_not_found_raises_job_not_found_error(self, mock_get_settings):
+        """No row found raises JobNotFoundError."""
+        mock_get_settings.return_value = MagicMock(
+            sqs_attendance_queue_url=TEST_ATTENDANCE_QUEUE_URL,
+        )
+
+        mock_client = _make_enqueue_attendance_mock_client(
+            job_select_side_effect=Exception("Row not found"),
+        )
+
+        service = JobService(client=mock_client, queue_service=MagicMock())
+        with pytest.raises(JobNotFoundError, match="not found"):
+            service.enqueue_attendance_job(
+                job_id=TEST_JOB_ID,
+                user_id=TEST_USER_ID,
+                class_id=TEST_CLASS_ID,
+                session_id=TEST_SESSION_ID,
+            )
+
+    @patch("app.services.job_service.get_settings")
+    def test_job_not_pending_raises_job_not_pending_error(self, mock_get_settings):
+        """Job in RUNNING status raises JobNotPendingError."""
+        mock_get_settings.return_value = MagicMock(
+            sqs_attendance_queue_url=TEST_ATTENDANCE_QUEUE_URL,
+        )
+
+        mock_client = _make_enqueue_attendance_mock_client(
+            job_data={
+                "id": TEST_JOB_ID,
+                "status": "RUNNING",
+                "owner_user_id": TEST_USER_ID,
+                "s3_bucket": TEST_BUCKET,
+                "s3_key": "attendance-photos/test.jpg",
+            },
+        )
+
+        service = JobService(client=mock_client, queue_service=MagicMock())
+        with pytest.raises(JobNotPendingError, match="not in PENDING"):
+            service.enqueue_attendance_job(
+                job_id=TEST_JOB_ID,
+                user_id=TEST_USER_ID,
+                class_id=TEST_CLASS_ID,
+                session_id=TEST_SESSION_ID,
+            )
+
+    @patch("app.services.job_service.get_settings")
+    def test_wrong_owner_raises_job_ownership_error(self, mock_get_settings):
+        """owner_user_id mismatch raises JobOwnershipError."""
+        mock_get_settings.return_value = MagicMock(
+            sqs_attendance_queue_url=TEST_ATTENDANCE_QUEUE_URL,
+        )
+
+        other_user_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        mock_client = _make_enqueue_attendance_mock_client(
+            job_data={
+                "id": TEST_JOB_ID,
+                "status": "PENDING",
+                "owner_user_id": other_user_id,
+                "s3_bucket": TEST_BUCKET,
+                "s3_key": "attendance-photos/test.jpg",
+            },
+        )
+
+        service = JobService(client=mock_client, queue_service=MagicMock())
+        with pytest.raises(JobOwnershipError, match="does not belong"):
+            service.enqueue_attendance_job(
+                job_id=TEST_JOB_ID,
+                user_id=TEST_USER_ID,
+                class_id=TEST_CLASS_ID,
+                session_id=TEST_SESSION_ID,
+            )
+
+    @patch("app.services.job_service.get_settings")
+    def test_sqs_failure_raises_create_job_error(self, mock_get_settings):
+        """QueueServiceError is wrapped in CreateJobError."""
+        mock_get_settings.return_value = MagicMock(
+            sqs_attendance_queue_url=TEST_ATTENDANCE_QUEUE_URL,
+        )
+
+        mock_client = _make_enqueue_attendance_mock_client(
+            job_data={
+                "id": TEST_JOB_ID,
+                "status": "PENDING",
+                "owner_user_id": TEST_USER_ID,
+                "s3_bucket": TEST_BUCKET,
+                "s3_key": "attendance-photos/test.jpg",
+            },
+        )
+        mock_queue = MagicMock()
+        mock_queue.send_message.side_effect = QueueServiceError("SQS unavailable")
+
+        service = JobService(client=mock_client, queue_service=mock_queue)
+        with pytest.raises(CreateJobError, match="Failed to enqueue job"):
+            service.enqueue_attendance_job(
+                job_id=TEST_JOB_ID,
+                user_id=TEST_USER_ID,
+                class_id=TEST_CLASS_ID,
+                session_id=TEST_SESSION_ID,
+            )

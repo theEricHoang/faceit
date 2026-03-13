@@ -51,14 +51,19 @@ class StorageService:
         }
 
     def generate_attendance_presigned_upload_url(
-        self, class_id: str, instructor_id: str, file_extension: str = "jpg"
+        self,
+        class_id: str,
+        instructor_id: str,
+        session_id: str,
+        file_extension: str = "jpg",
     ) -> dict:
-        """Generate a pre-signed URL for uploading an attendance class photo."""
+        """Generate a pre-signed URL for uploading one photo into an attendance session."""
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        key = (
+        key_prefix = (
             f"attendance-photos/class-{class_id}/"
-            f"instructor-{instructor_id}/{timestamp}-{uuid.uuid4()}.{file_extension}"
+            f"instructor-{instructor_id}/session-{session_id}/"
         )
+        key = f"{key_prefix}{timestamp}-{uuid.uuid4()}.{file_extension}"
 
         content_type = "image/jpeg" if file_extension == "jpg" else f"image/{file_extension}"
 
@@ -77,4 +82,5 @@ class StorageService:
             "upload_url": upload_url,
             "bucket": self.attendance_bucket,
             "key": key,
+            "key_prefix": key_prefix,
         }

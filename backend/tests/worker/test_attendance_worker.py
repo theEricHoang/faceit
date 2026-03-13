@@ -23,7 +23,9 @@ TEST_USER_ID = "user-00000000-0000-0000-0000-000000000001"
 TEST_CLASS_ID = "class-0000-0000-0000-0000-000000000001"
 TEST_SESSION_ID = "sess-0000-0000-0000-0000-000000000001"
 TEST_BUCKET = "test-bucket"
-TEST_KEY = "attendance-photos/test/photo.jpg"
+TEST_KEY = "attendance-photos/test/session-prefix/"
+TEST_IMAGE_KEY = "attendance-photos/test/session-prefix/photo-1.jpg"
+TEST_IMAGE_KEY_2 = "attendance-photos/test/session-prefix/photo-2.jpg"
 TEST_RECEIPT = "test-receipt-handle"
 TEST_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/123456789012/attendance-queue"
 
@@ -54,6 +56,7 @@ def _make_valid_body(
         "job_id": job_id,
         "user_id": user_id,
         "class_id": class_id,
+        "session_id": TEST_SESSION_ID,
         "s3_bucket": s3_bucket,
         "s3_key": s3_key,
     }
@@ -128,6 +131,16 @@ def _setup_supabase_happy_path(mock_supabase):
     sessions_select.execute.return_value = MockTableResponse(data={"id": TEST_SESSION_ID})
 
     # Results table: insert results
+    results_select = MagicMock()
+    results_table.select.return_value = results_select
+    results_select.eq.return_value = results_select
+    results_select.execute.return_value = MockTableResponse(data=[])
+
+    results_delete = MagicMock()
+    results_table.delete.return_value = results_delete
+    results_delete.eq.return_value = results_delete
+    results_delete.execute.return_value = MockTableResponse(data=[])
+
     results_insert = MagicMock()
     results_table.insert.return_value = results_insert
     results_insert.execute.return_value = MockTableResponse(data=[{"id": "result-1"}])
@@ -150,19 +163,12 @@ class TestHandleMessage:
 
         # Mock recognition service
         mock_recognition = MagicMock()
-        mock_recognition.recognize_class_photo.return_value = (
-            [
-                FaceMatch(face_index=0, student_id=STUDENT_A_ID, confidence=0.95, quality_score=0.9),
-                FaceMatch(face_index=1, student_id=STUDENT_B_ID, confidence=0.87, quality_score=0.85),
-                FaceMatch(face_index=2, student_id=None, confidence=0.3, quality_score=0.8),  # UNKNOWN
-            ],
-            {
-                "total_faces": 3,
-                "present_count": 2,
-                "unknown_count": 1,
-                "enrolled_count": 5,
-            },
-        )
+        mock_recognition.get_enrolled_embeddings.return_value = [MagicMock(), MagicMock()]
+        mock_recognition.match_faces.return_value = [
+            FaceMatch(face_index=0, student_id=STUDENT_A_ID, confidence=0.95, quality_score=0.9),
+            FaceMatch(face_index=1, student_id=STUDENT_B_ID, confidence=0.87, quality_score=0.85),
+            FaceMatch(face_index=2, student_id=None, confidence=0.3, quality_score=0.8),
+        ]
 
         worker, mock_sqs, mock_s3 = _build_worker(
             mock_supabase,
@@ -170,7 +176,7 @@ class TestHandleMessage:
             embedding_mode="v0",
         )
 
-        # S3 download returns fake image bytes
+        mock_s3.list_objects_v2.return_value = {"Contents": [{"Key": TEST_IMAGE_KEY}]}
         mock_body = MagicMock()
         mock_body.read.return_value = b"fake-class-photo"
         mock_s3.get_object.return_value = {"Body": mock_body}
@@ -179,10 +185,10 @@ class TestHandleMessage:
         worker._handle_message(message)
 
         # Verify S3 download
-        mock_s3.get_object.assert_called_once_with(Bucket=TEST_BUCKET, Key=TEST_KEY)
+        mock_s3.get_object.assert_called_once_with(Bucket=TEST_BUCKET, Key=TEST_IMAGE_KEY)
 
-        # Verify recognition was called
-        mock_recognition.recognize_class_photo.assert_called_once()
+        mock_recognition.get_enrolled_embeddings.assert_called_once_with(TEST_CLASS_ID)
+        mock_recognition.match_faces.assert_called_once()
 
         # Verify attendance_results were inserted
         results_table.insert.assert_called_once()
@@ -213,18 +219,11 @@ class TestHandleMessage:
         jobs_table, sessions_table, results_table = _setup_supabase_happy_path(mock_supabase)
 
         mock_recognition = MagicMock()
-        mock_recognition.recognize_class_photo.return_value = (
-            [
-                FaceMatch(face_index=0, student_id=None, confidence=0.3, quality_score=0.9),
-                FaceMatch(face_index=1, student_id=None, confidence=0.2, quality_score=0.85),
-            ],
-            {
-                "total_faces": 2,
-                "present_count": 0,
-                "unknown_count": 2,
-                "enrolled_count": 5,
-            },
-        )
+        mock_recognition.get_enrolled_embeddings.return_value = [MagicMock()]
+        mock_recognition.match_faces.return_value = [
+            FaceMatch(face_index=0, student_id=None, confidence=0.3, quality_score=0.9),
+            FaceMatch(face_index=1, student_id=None, confidence=0.2, quality_score=0.85),
+        ]
 
         worker, mock_sqs, mock_s3 = _build_worker(
             mock_supabase,
@@ -232,6 +231,7 @@ class TestHandleMessage:
             embedding_mode="v0",
         )
 
+        mock_s3.list_objects_v2.return_value = {"Contents": [{"Key": TEST_IMAGE_KEY}]}
         mock_body = MagicMock()
         mock_body.read.return_value = b"fake-image"
         mock_s3.get_object.return_value = {"Body": mock_body}
@@ -245,6 +245,55 @@ class TestHandleMessage:
         assert final_update["status"] == "SUCCEEDED"
         assert final_update["present_count"] == 0
         assert final_update["unknown_count"] == 2
+
+    def test_duplicate_student_not_counted_twice_in_session(self):
+        """Only new unique recognized students are persisted for a session."""
+        mock_supabase = MagicMock()
+        jobs_table, sessions_table, results_table = _setup_supabase_happy_path(mock_supabase)
+
+        mock_recognition = MagicMock()
+        mock_recognition.get_enrolled_embeddings.return_value = [MagicMock(), MagicMock()]
+        mock_recognition.match_faces.side_effect = [
+            [
+                FaceMatch(face_index=0, student_id=STUDENT_A_ID, confidence=0.96, quality_score=0.9),
+                FaceMatch(face_index=1, student_id=STUDENT_B_ID, confidence=0.91, quality_score=0.85),
+            ],
+            [
+                FaceMatch(face_index=2, student_id=STUDENT_A_ID, confidence=0.93, quality_score=0.88),
+                FaceMatch(face_index=3, student_id=None, confidence=0.22, quality_score=0.8),
+            ],
+        ]
+
+        worker, mock_sqs, mock_s3 = _build_worker(
+            mock_supabase,
+            mock_recognition_service=mock_recognition,
+            embedding_mode="v0",
+        )
+
+        mock_s3.list_objects_v2.return_value = {
+            "Contents": [{"Key": TEST_IMAGE_KEY}, {"Key": TEST_IMAGE_KEY_2}]
+        }
+        mock_body = MagicMock()
+        mock_body.read.side_effect = [b"fake-class-photo", b"fake-class-photo-2"]
+        mock_s3.get_object.side_effect = [{"Body": mock_body}, {"Body": mock_body}]
+
+        message = _make_sqs_message(_make_valid_body())
+        worker._handle_message(message)
+
+        inserted_rows = results_table.insert.call_args[0][0]
+        assert len(inserted_rows) == 3
+        assert inserted_rows[0]["student_id"] == STUDENT_A_ID
+        assert inserted_rows[1]["student_id"] == STUDENT_B_ID
+        assert inserted_rows[2]["student_id"] is None
+
+        final_update = jobs_table.update.call_args_list[-1][0][0]
+        assert final_update["present_count"] == 2
+        assert final_update["unknown_count"] == 1
+
+        mock_sqs.delete_message.assert_called_once_with(
+            QueueUrl=TEST_QUEUE_URL,
+            ReceiptHandle=TEST_RECEIPT,
+        )
 
     def test_missing_class_id_fails(self):
         """Test that missing class_id in message causes failure."""
@@ -284,8 +333,7 @@ class TestHandleMessage:
         jobs_table, sessions_table, results_table = _setup_supabase_happy_path(mock_supabase)
 
         mock_recognition = MagicMock()
-        # Simulate no enrolled students error
-        mock_recognition.recognize_class_photo.side_effect = NoEnrolledStudentsError(
+        mock_recognition.get_enrolled_embeddings.side_effect = NoEnrolledStudentsError(
             "No enrolled students"
         )
 
@@ -295,6 +343,7 @@ class TestHandleMessage:
             embedding_mode="v0",
         )
 
+        mock_s3.list_objects_v2.return_value = {"Contents": [{"Key": TEST_IMAGE_KEY}]}
         mock_body = MagicMock()
         mock_body.read.return_value = b"fake-image"
         mock_s3.get_object.return_value = {"Body": mock_body}
@@ -368,7 +417,9 @@ class TestHandleMessage:
 
         worker, mock_sqs, mock_s3 = _build_worker(mock_supabase, embedding_mode="v0")
 
-        message = _make_sqs_message(_make_valid_body())
+        invalid_body = _make_valid_body()
+        invalid_body.pop("session_id", None)
+        message = _make_sqs_message(invalid_body)
         worker._handle_message(message)
 
         # Job should be marked as failed

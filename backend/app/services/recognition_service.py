@@ -194,13 +194,14 @@ class RecognitionService:
         Returns:
             List of FaceMatch objects (one per detected face).
         """
-        matches: list[FaceMatch] = []
+        candidate_matches: list[tuple[float, int, str]] = []
+        best_similarity_by_face: dict[int, float] = {}
+        face_by_index = {face.face_index: face for face in detected_faces}
 
         for face in detected_faces:
-            best_match: Optional[str] = None
-            best_similarity: float = -1.0
+            best_similarity = -1.0
 
-            # Compare against all enrolled embeddings
+            # Compare against all enrolled embeddings and record all viable candidates.
             for enrolled in enrolled_embeddings:
                 similarity = self._cosine_similarity(
                     face.embedding, enrolled.embedding
@@ -208,36 +209,65 @@ class RecognitionService:
 
                 if similarity > best_similarity:
                     best_similarity = similarity
-                    best_match = enrolled.student_id
 
-            # Check if best match exceeds threshold
-            if best_similarity >= self.similarity_threshold:
+                if similarity >= self.similarity_threshold:
+                    candidate_matches.append(
+                        (similarity, face.face_index, enrolled.student_id)
+                    )
+
+            best_similarity_by_face[face.face_index] = best_similarity
+
+        # Greedy one-to-one assignment prevents the same student from being
+        # counted multiple times in a single image.
+        candidate_matches.sort(reverse=True)
+        assigned_faces: set[int] = set()
+        assigned_students: set[str] = set()
+        assigned_match_by_face: dict[int, tuple[str, float]] = {}
+
+        for similarity, face_index, student_id in candidate_matches:
+            if face_index in assigned_faces or student_id in assigned_students:
+                continue
+
+            assigned_faces.add(face_index)
+            assigned_students.add(student_id)
+            assigned_match_by_face[face_index] = (student_id, similarity)
+
+        matches: list[FaceMatch] = []
+        for face in detected_faces:
+            assigned = assigned_match_by_face.get(face.face_index)
+            if assigned:
+                student_id, confidence = assigned
                 matches.append(
                     FaceMatch(
                         face_index=face.face_index,
-                        student_id=best_match,
-                        confidence=best_similarity,
+                        student_id=student_id,
+                        confidence=confidence,
                         quality_score=face.quality_score,
                     )
                 )
                 logger.debug(
                     "Face %d matched to student %s (confidence: %.3f)",
-                    face.face_index, best_match, best_similarity
+                    face.face_index,
+                    student_id,
+                    confidence,
                 )
-            else:
-                # No match above threshold - mark as UNKNOWN
-                matches.append(
-                    FaceMatch(
-                        face_index=face.face_index,
-                        student_id=None,  # UNKNOWN
-                        confidence=best_similarity if best_similarity > 0 else None,
-                        quality_score=face.quality_score,
-                    )
+                continue
+
+            best_similarity = best_similarity_by_face.get(face.face_index, -1.0)
+            matches.append(
+                FaceMatch(
+                    face_index=face.face_index,
+                    student_id=None,
+                    confidence=best_similarity if best_similarity > 0 else None,
+                    quality_score=face.quality_score,
                 )
-                logger.debug(
-                    "Face %d: no match found (best: %.3f, threshold: %.3f)",
-                    face.face_index, best_similarity, self.similarity_threshold
-                )
+            )
+            logger.debug(
+                "Face %d: no match found (best: %.3f, threshold: %.3f)",
+                face.face_index,
+                best_similarity,
+                self.similarity_threshold,
+            )
 
         return matches
 

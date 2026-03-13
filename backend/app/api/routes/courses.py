@@ -151,6 +151,7 @@ async def join_class_by_code(
 @router.post("/{class_id}/attendance/upload-url", response_model=UploadUrlResponse, status_code=status.HTTP_200_OK)
 async def get_attendance_upload_url(
     class_id: UUID,
+    session_id: UUID | None = None,
     current_user: CurrentUser = Depends(require_instructor),
     query_service: ClassQueryService = Depends(get_query_service),
     storage_service: StorageService = Depends(get_storage_service),
@@ -159,44 +160,62 @@ async def get_attendance_upload_url(
 ) -> UploadUrlResponse:
     """Generate a pre-signed URL for uploading a class attendance photo.
 
-    Also creates a PENDING job and an attendance session linked to it.
+    Creates a batch session on the first request, then returns upload URLs
+    for additional photos within the same session when session_id is provided.
     """
     has_access = query_service.instructor_has_class(current_user.user_id, class_id)
     if not has_access:
         raise HTTPException(status_code=404, detail="Class not found")
 
-    job_id = uuid4()
-
-    result = storage_service.generate_attendance_presigned_upload_url(
-        class_id=str(class_id),
-        instructor_id=str(current_user.user_id),
-    )
-
-    try:
-        job_service.create_pending_attendance_job(
-            job_id=str(job_id),
-            user_id=str(current_user.user_id),
-            bucket=result["bucket"],
-            key=result["key"],
-        )
-    except CreateJobError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+    if session_id is None:
+        session_id = uuid4()
+        job_id = uuid4()
+        result = storage_service.generate_attendance_presigned_upload_url(
+            class_id=str(class_id),
+            instructor_id=str(current_user.user_id),
+            session_id=str(session_id),
         )
 
-    try:
-        session_row = attendance_service.create_session(
-            class_id=class_id,
-            instructor_id=current_user.user_id,
-            job_id=job_id,
-        )
-    except CreateSessionError as e:
-        # Rollback the orphaned job row
-        job_service.rollback_job(str(job_id))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+        try:
+            job_service.create_pending_attendance_job(
+                job_id=str(job_id),
+                user_id=str(current_user.user_id),
+                bucket=result["bucket"],
+                key=result["key_prefix"],
+            )
+        except CreateJobError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(e),
+            )
+
+        try:
+            session_row = attendance_service.create_session(
+                class_id=class_id,
+                instructor_id=current_user.user_id,
+                job_id=job_id,
+                session_id=session_id,
+            )
+        except CreateSessionError as e:
+            job_service.rollback_job(str(job_id))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(e),
+            )
+    else:
+        try:
+            session_row = attendance_service.get_session(session_id, class_id)
+        except SessionNotFoundError as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e),
+            )
+
+        job_id = UUID(str(session_row["job_id"]))
+        result = storage_service.generate_attendance_presigned_upload_url(
+            class_id=str(class_id),
+            instructor_id=str(current_user.user_id),
+            session_id=str(session_id),
         )
 
     return UploadUrlResponse(

@@ -488,6 +488,7 @@ class TestEnqueueAttendanceJob:
         assert body["job_id"] == TEST_JOB_ID
         assert body["user_id"] == TEST_USER_ID
         assert body["class_id"] == TEST_CLASS_ID
+        assert body["session_id"] == TEST_SESSION_ID
         assert body["s3_bucket"] == TEST_BUCKET
         assert body["s3_key"] == "attendance-photos/test.jpg"
 

@@ -322,7 +322,7 @@ class JobService:
             job_id: The UUID for the new job.
             user_id: The owner's user ID.
             bucket: S3 bucket where the photo will be uploaded.
-            key: S3 object key for the photo.
+            key: S3 key prefix for all photos in the session batch.
 
         Returns:
             The created job row data.
@@ -407,6 +407,7 @@ class JobService:
                     "job_id": job_id,
                     "user_id": user_id,
                     "class_id": class_id,
+                    "session_id": session_id,
                     "s3_bucket": job.get("s3_bucket"),
                     "s3_key": job.get("s3_key"),
                 },

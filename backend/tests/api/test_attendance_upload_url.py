@@ -21,14 +21,22 @@ class FakeQueryService:
 
 class FakeStorageService:
     def generate_attendance_presigned_upload_url(
-        self, class_id: str, instructor_id: str, file_extension: str = "jpg"
+        self,
+        class_id: str,
+        instructor_id: str,
+        session_id: str,
+        file_extension: str = "jpg"
     ):
         return {
             "upload_url": "https://test-bucket.s3.amazonaws.com/presigned-url",
             "bucket": "test-bucket",
             "key": (
                 f"attendance-photos/class-{class_id}/"
-                f"instructor-{instructor_id}/20260228T120000Z-abc.jpg"
+                f"instructor-{instructor_id}/session-{session_id}/20260228T120000Z-abc.jpg"
+            ),
+            "key_prefix": (
+                f"attendance-photos/class-{class_id}/"
+                f"instructor-{instructor_id}/session-{session_id}/"
             ),
         }
 
@@ -55,14 +63,22 @@ FAKE_SESSION_ID = "99999999-9999-9999-9999-999999999999"
 
 
 class FakeAttendanceService:
-    """Fake that returns a canned session row from create_session."""
+    """Fake that returns canned session rows for batch attendance flows."""
 
-    def create_session(self, class_id, instructor_id, job_id):
+    def create_session(self, class_id, instructor_id, job_id, session_id=None):
         return {
-            "id": FAKE_SESSION_ID,
+            "id": str(session_id or FAKE_SESSION_ID),
             "class_id": str(class_id),
             "instructor_id": str(instructor_id),
             "job_id": str(job_id),
+        }
+
+    def get_session(self, session_id, class_id):
+        return {
+            "id": str(session_id),
+            "class_id": str(class_id),
+            "instructor_id": "instructor-id",
+            "job_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         }
 
 
@@ -97,9 +113,25 @@ def test_instructor_gets_attendance_upload_url(
     assert payload["bucket"] == "test-bucket"
     assert f"class-{class_id}" in payload["key"]
     assert f"instructor-{mock_instructor_user.user_id}" in payload["key"]
+    assert f"session-{payload['session_id']}" in payload["key"]
     # New fields from job + session creation
     assert payload["job_id"] is not None
+    assert payload["session_id"] is not None
+
+
+def test_existing_session_reuses_session_and_job(authenticated_client):
+    _apply_overrides(has_access=True)
+
+    class_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    response = authenticated_client.post(
+        f"/classes/{class_id}/attendance/upload-url?session_id={FAKE_SESSION_ID}"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
     assert payload["session_id"] == FAKE_SESSION_ID
+    assert payload["job_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    assert f"session-{FAKE_SESSION_ID}" in payload["key"]
 
 
 def test_class_not_owned_returns_404(authenticated_client):

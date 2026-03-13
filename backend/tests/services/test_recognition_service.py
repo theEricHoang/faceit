@@ -206,6 +206,26 @@ class TestMatchFaces:
         assert matches[0].student_id == STUDENT_A_ID
         assert matches[1].student_id == STUDENT_B_ID
 
+    def test_same_student_not_assigned_to_multiple_faces(self):
+        """A student should only be counted once per image."""
+        near_a = _normalized_embedding([0.98, 0.05, 0.0] + [0.0] * 509)
+        also_near_a = _normalized_embedding([0.97, 0.08, 0.0] + [0.0] * 509)
+        enrolled = [
+            EnrolledEmbedding(student_id=STUDENT_A_ID, embedding=EMBEDDING_A, model="v1"),
+            EnrolledEmbedding(student_id=STUDENT_B_ID, embedding=EMBEDDING_B, model="v1"),
+        ]
+        detected = [
+            DetectedFace(embedding=near_a, quality_score=0.95, face_index=0, bbox=(0, 0, 100, 100)),
+            DetectedFace(embedding=also_near_a, quality_score=0.90, face_index=1, bbox=(100, 0, 200, 100)),
+        ]
+
+        service = RecognitionService(client=MagicMock(), similarity_threshold=0.6)
+        matches = service.match_faces(detected, enrolled)
+
+        matched_students = [match.student_id for match in matches if match.student_id is not None]
+        assert matched_students == [STUDENT_A_ID]
+        assert matches[1].student_id is None
+
     def test_threshold_boundary_below(self):
         """Face just below threshold should not match."""
         # Create an embedding that will give ~0.5 similarity

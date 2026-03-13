@@ -146,6 +146,7 @@ class AttendanceWorker:
             class_id = payload.get("class_id")
             s3_bucket = payload.get("s3_bucket") or self.default_bucket
             s3_key = payload.get("s3_key")
+            session_id = payload.get("session_id")
 
             if not job_id or not user_id or not class_id or not s3_key:
                 raise ValueError(
@@ -164,39 +165,78 @@ class AttendanceWorker:
             self._update_job_status(job_id, JobStatus.RUNNING)
 
             # Get session_id for this job (required to write attendance_results)
-            session_id = self._get_session_id_for_job(job_id)
+            session_id = session_id or self._get_session_id_for_job(job_id)
             if not session_id:
                 raise ValueError(f"No attendance session found for job {job_id}")
 
-            # Process the attendance photo
+            # Process all uploaded photos for this attendance session.
             logger.info(
                 "Processing attendance job %s for class %s", job_id, class_id
             )
 
-            # Step 1: Download image from S3
-            image_bytes = self._download_image(s3_bucket, s3_key)
+            # Step 1: Enumerate all uploaded images for this session.
+            image_keys = self._list_image_keys(s3_bucket, s3_key)
+            if not image_keys:
+                raise ValueError(
+                    f"No attendance images found for session {session_id}"
+                )
 
-            # Step 2: Detect faces and extract embeddings
-            if self.embedding_mode == "v0":
-                # Stub mode for testing: generate fake face detections
-                detected_faces = _generate_stub_faces(job_id, count=3)
-            else:
-                detected_faces = self._detect_faces(image_bytes)
-
-            # Step 3: Match faces against enrolled students
-            matches, summary = self.recognition_service.recognize_class_photo(
-                detected_faces, class_id
+            enrolled_embeddings = self.recognition_service.get_enrolled_embeddings(
+                class_id
             )
+            self._clear_attendance_results(session_id)
+
+            # Step 2: Detect and match faces across the full batch.
+            matches: list[FaceMatch] = []
+            next_face_index = 0
+            for image_key in image_keys:
+                try:
+                    image_bytes = self._download_image(s3_bucket, image_key)
+                    if self.embedding_mode == "v0":
+                        detected_faces = _generate_stub_faces(
+                            f"{job_id}:{image_key}", count=3
+                        )
+                    else:
+                        detected_faces = self._detect_faces(image_bytes)
+                except NoFaceDetectedError:
+                    logger.warning(
+                        "No faces detected in image %s for session %s",
+                        image_key,
+                        session_id,
+                    )
+                    continue
+
+                reindexed_faces = [
+                    DetectedFace(
+                        embedding=face.embedding,
+                        quality_score=face.quality_score,
+                        face_index=next_face_index + index,
+                        bbox=face.bbox,
+                    )
+                    for index, face in enumerate(detected_faces)
+                ]
+                next_face_index += len(reindexed_faces)
+                matches.extend(
+                    self.recognition_service.match_faces(
+                        reindexed_faces,
+                        enrolled_embeddings,
+                    )
+                )
+
+            if not matches:
+                raise NoFaceDetectedError(
+                    "No faces detected in any uploaded image for this session"
+                )
 
             # Step 4: Write attendance_results to database
-            self._write_attendance_results(session_id, matches)
+            persisted_summary = self._write_attendance_results(session_id, matches)
 
             # Step 5: Mark job as SUCCEEDED with summary
             self._update_job_status(
                 job_id,
                 JobStatus.SUCCEEDED,
-                present_count=summary["present_count"],
-                unknown_count=summary["unknown_count"],
+                present_count=persisted_summary["present_count"],
+                unknown_count=persisted_summary["unknown_count"],
             )
 
             # Delete message from queue
@@ -204,7 +244,9 @@ class AttendanceWorker:
 
             logger.info(
                 "Attendance job %s completed: %d present, %d unknown",
-                job_id, summary["present_count"], summary["unknown_count"]
+                job_id,
+                persisted_summary["present_count"],
+                persisted_summary["unknown_count"],
             )
 
         except NoFaceDetectedError as exc:
@@ -239,6 +281,35 @@ class AttendanceWorker:
             return response["Body"].read()
         except (BotoCoreError, ClientError) as exc:
             raise RuntimeError(f"S3 download failed: {exc}") from exc
+
+    def _list_image_keys(self, bucket: str, key_prefix: str) -> list[str]:
+        """List all uploaded image keys for one attendance session."""
+        image_keys: list[str] = []
+        continuation_token: str | None = None
+
+        while True:
+            request: dict[str, Any] = {"Bucket": bucket, "Prefix": key_prefix}
+            if continuation_token is not None:
+                request["ContinuationToken"] = continuation_token
+
+            try:
+                response = self.s3_client.list_objects_v2(**request)
+            except (BotoCoreError, ClientError) as exc:
+                raise RuntimeError(f"S3 list failed: {exc}") from exc
+
+            contents = response.get("Contents", [])
+            image_keys.extend(
+                item["Key"]
+                for item in contents
+                if item.get("Key") and not item["Key"].endswith("/")
+            )
+
+            if not response.get("IsTruncated"):
+                break
+            continuation_token = response.get("NextContinuationToken")
+
+        image_keys.sort()
+        return image_keys
 
     def _detect_faces(self, image_bytes: bytes) -> list[DetectedFace]:
         """
@@ -282,6 +353,12 @@ class AttendanceWorker:
         except Exception:
             return None
 
+    def _clear_attendance_results(self, session_id: str) -> None:
+        """Delete prior session results so batch reprocessing is idempotent."""
+        self.supabase.table("attendance_results").delete().eq(
+            "session_id", session_id
+        ).execute()
+
     def _update_job_status(
         self,
         job_id: str,
@@ -311,15 +388,35 @@ class AttendanceWorker:
 
     def _write_attendance_results(
         self, session_id: str, matches: list[FaceMatch]
-    ) -> None:
+    ) -> dict[str, int]:
         """
         Write attendance results to the database.
 
-        Each detected face gets a row in attendance_results:
-        - student_id: matched student UUID, or NULL for UNKNOWN faces
-        - confidence: cosine similarity score
-        - face_index: position in the original detection order
+        Recognized students are stored at most once per session. If the same
+        student is detected multiple times in one image, or was already stored
+        by an earlier image in the same session, only the highest-confidence new
+        match is persisted.
+
+        Unknown detections are still written one row per face.
         """
+        existing_student_ids = self._get_existing_recognized_student_ids(session_id)
+        best_match_by_student: dict[str, FaceMatch] = {}
+        unknown_matches: list[FaceMatch] = []
+
+        for match in matches:
+            if match.student_id is None:
+                unknown_matches.append(match)
+                continue
+
+            if match.student_id in existing_student_ids:
+                continue
+
+            current_best = best_match_by_student.get(match.student_id)
+            match_confidence = match.confidence or 0.0
+            best_confidence = current_best.confidence or 0.0 if current_best else -1.0
+            if current_best is None or match_confidence > best_confidence:
+                best_match_by_student[match.student_id] = match
+
         rows = [
             {
                 "session_id": session_id,
@@ -327,12 +424,15 @@ class AttendanceWorker:
                 "confidence": match.confidence,
                 "face_index": match.face_index,
             }
-            for match in matches
+            for match in sorted(
+                [*best_match_by_student.values(), *unknown_matches],
+                key=lambda item: item.face_index,
+            )
         ]
 
         if not rows:
             logger.warning("No attendance results to write for session %s", session_id)
-            return
+            return {"present_count": 0, "unknown_count": 0}
 
         result = (
             self.supabase.table("attendance_results")
@@ -348,6 +448,24 @@ class AttendanceWorker:
         logger.info(
             "Wrote %d attendance results for session %s", len(rows), session_id
         )
+        return {
+            "present_count": len(best_match_by_student),
+            "unknown_count": len(unknown_matches),
+        }
+
+    def _get_existing_recognized_student_ids(self, session_id: str) -> set[str]:
+        """Return student IDs already marked present in this session."""
+        result = (
+            self.supabase.table("attendance_results")
+            .select("student_id")
+            .eq("session_id", session_id)
+            .execute()
+        )
+        return {
+            row["student_id"]
+            for row in (result.data or [])
+            if row.get("student_id") is not None
+        }
 
     def _delete_message(self, receipt_handle: str) -> None:
         """Delete processed message from SQS queue."""

@@ -10,7 +10,11 @@ from app.services.classes.class_service import ClassService, CreateClassError
 from app.services.enrollment_service import EnrollmentService, EnrollmentServiceError
 from app.services.storage_service import StorageService
 from app.services.job_service import JobService, CreateJobError
-from app.services.attendance_service import AttendanceService, CreateSessionError
+from app.services.attendance_service import (
+    AttendanceService,
+    CreateSessionError,
+    SessionNotFoundError,
+)
 from app.api.deps import (
     get_current_user,
     get_attendance_service,

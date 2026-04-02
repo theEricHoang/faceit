@@ -75,3 +75,4 @@ poetry.lock
 venv/
 env/
 .venv/
+pyrightconfig.json

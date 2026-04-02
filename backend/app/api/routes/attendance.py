@@ -67,6 +67,15 @@ async def process_attendance_job(
             detail="No attendance session found for this job",
         )
 
+    # Ensure the job's session belongs to the requested class_id.
+    try:
+        attendance_service.get_session(UUID(session_id), class_id)
+    except SessionNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No attendance session found for this class and job",
+        )
+
     try:
         return job_service.enqueue_attendance_job(
             job_id=str(job_id),

@@ -53,6 +53,15 @@ class FakeAttendanceService:
             raise self._error
         return self._session_id
 
+    def get_session(self, session_id, class_id):
+        if self._error:
+            raise self._error
+        return {
+            "id": str(session_id),
+            "class_id": str(class_id),
+            "job_id": str(STUB_JOB_ID),
+        }
+
 
 class FakeJobService:
     """Stub that returns canned responses or raises configured errors."""
@@ -117,6 +126,20 @@ class TestAttendanceProcess:
 
         response = authenticated_client.post(
             f"/classes/{STUB_CLASS_ID}/attendance/process/{STUB_JOB_ID}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["job_id"] == str(STUB_JOB_ID)
+        assert payload["session_id"] == str(STUB_SESSION_ID)
+
+    def test_session_process_happy_path_returns_ids(
+        self, authenticated_client, mock_instructor_user
+    ):
+        _apply_overrides(has_access=True, job_service=FakeJobService())
+
+        response = authenticated_client.post(
+            f"/classes/{STUB_CLASS_ID}/attendance/sessions/{STUB_SESSION_ID}/process"
         )
 
         assert response.status_code == status.HTTP_200_OK

@@ -120,6 +120,32 @@ class TestGetSessionReport:
         assert report["present_students"] == []
         assert report["unknown_count"] == 2
 
+    def test_duplicate_student_rows_are_collapsed(self):
+        """Repeated recognized rows for one student should only appear once."""
+        mock_client = _build_mock_client(
+            session_data={
+                "id": str(SESSION_ID),
+                "class_id": str(CLASS_ID),
+                "created_at": "2026-03-06T10:00:00Z",
+            },
+            results_data=[
+                {"student_id": STUDENT_A_ID, "confidence": 0.72},
+                {"student_id": STUDENT_A_ID, "confidence": 0.94},
+                {"student_id": None, "confidence": 0.19},
+            ],
+            profiles_data=[
+                {"id": STUDENT_A_ID, "first_name": "Jane", "last_name": "Smith"},
+            ],
+        )
+
+        service = AttendanceService(client=mock_client)
+        report = service.get_session_report(SESSION_ID, CLASS_ID)
+
+        assert len(report["present_students"]) == 1
+        assert report["present_students"][0]["student_id"] == STUDENT_A_ID
+        assert report["present_students"][0]["confidence"] == 0.94
+        assert report["unknown_count"] == 1
+
     def test_no_results(self):
         """Session exists but has zero attendance results."""
         mock_client = _build_mock_client(
@@ -223,9 +249,35 @@ class TestCreateSession:
         # Verify insert was called on attendance_sessions table
         mock_client.table.assert_called_with("attendance_sessions")
         insert_args = mock_client.table.return_value.insert.call_args[0][0]
+        assert insert_args["id"] is None
         assert insert_args["class_id"] == str(CLASS_ID)
         assert insert_args["instructor_id"] == str(INSTRUCTOR_ID)
         assert insert_args["job_id"] == str(JOB_ID)
+
+    def test_happy_path_creates_session_row_with_explicit_id(self):
+        """Allows callers to pin the batch session id up front."""
+        mock_client = MagicMock()
+        created_row = {
+            "id": str(SESSION_ID),
+            "class_id": str(CLASS_ID),
+            "instructor_id": str(INSTRUCTOR_ID),
+            "job_id": str(JOB_ID),
+        }
+        mock_client.table.return_value.insert.return_value.execute.return_value = MockResponse(
+            data=[created_row]
+        )
+
+        service = AttendanceService(client=mock_client)
+        result = service.create_session(
+            class_id=CLASS_ID,
+            instructor_id=INSTRUCTOR_ID,
+            job_id=JOB_ID,
+            session_id=SESSION_ID,
+        )
+
+        assert result["id"] == str(SESSION_ID)
+        insert_args = mock_client.table.return_value.insert.call_args[0][0]
+        assert insert_args["id"] == str(SESSION_ID)
 
     def test_db_error_raises_create_session_error(self):
         """DB exception is wrapped in CreateSessionError."""
@@ -280,3 +332,37 @@ class TestGetSessionIdForJob:
         service = AttendanceService(client=mock_client)
         with pytest.raises(SessionNotFoundError, match="No attendance session found"):
             service.get_session_id_for_job(JOB_ID)
+
+
+class TestGetSession:
+    """Tests for AttendanceService.get_session."""
+
+    def test_happy_path_returns_session_row(self):
+        mock_client = _build_mock_client(
+            session_data={
+                "id": str(SESSION_ID),
+                "class_id": str(CLASS_ID),
+                "instructor_id": str(INSTRUCTOR_ID),
+                "job_id": str(JOB_ID),
+                "created_at": "2026-03-06T10:00:00Z",
+            },
+            results_data=[],
+            profiles_data=[],
+        )
+
+        service = AttendanceService(client=mock_client)
+        session = service.get_session(SESSION_ID, CLASS_ID)
+
+        assert session["id"] == str(SESSION_ID)
+        assert session["job_id"] == str(JOB_ID)
+
+    def test_missing_session_raises_not_found(self):
+        mock_client = _build_mock_client(
+            session_data=None,
+            results_data=[],
+            profiles_data=[],
+        )
+
+        service = AttendanceService(client=mock_client)
+        with pytest.raises(SessionNotFoundError, match="not found"):
+            service.get_session(SESSION_ID, CLASS_ID)

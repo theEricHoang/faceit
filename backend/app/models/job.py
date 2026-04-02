@@ -32,4 +32,7 @@ class Job(BaseModel):
     s3_bucket: str
     s3_key: str
     error_message: str | None = None
+    # Summary fields (populated for ATTENDANCE jobs on success)
+    present_count: int | None = None
+    unknown_count: int | None = None
     updated_at: datetime

@@ -62,6 +62,23 @@ export interface UploadUrlResponse {
   upload_url: string;
   bucket: string;
   key: string;
+  job_id: string;
+  session_id: string;
+}
+
+export interface AttendanceProcessResponse {
+  job_id: string;
+  session_id: string;
+}
+
+export interface AttendanceJobStatusResponse {
+  job_id: string;
+  status: 'PENDING' | 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+  kind: 'ATTENDANCE';
+  error_message: string | null;
+  present_count: number | null;
+  unknown_count: number | null;
+  updated_at: string;
 }
 
 /**
@@ -112,6 +129,69 @@ export async function withdrawFromClass(classId: string): Promise<WithdrawClassR
  */
 export async function getAttendanceUploadUrl(classId: string): Promise<UploadUrlResponse> {
   return apiClient.post<UploadUrlResponse>(`/classes/${classId}/attendance/upload-url`);
+}
+
+export async function getAttendanceSessionUploadUrl(
+  classId: string,
+  sessionId: string
+): Promise<UploadUrlResponse> {
+  return apiClient.post<UploadUrlResponse>(
+    `/classes/${classId}/attendance/upload-url?session_id=${encodeURIComponent(sessionId)}`
+  );
+}
+
+export async function processAttendanceSession(
+  classId: string,
+  sessionId: string
+): Promise<AttendanceProcessResponse> {
+  return apiClient.post<AttendanceProcessResponse>(
+    `/classes/${classId}/attendance/sessions/${sessionId}/process`
+  );
+}
+
+export async function getAttendanceJobStatus(
+  classId: string,
+  jobId: string
+): Promise<AttendanceJobStatusResponse> {
+  return apiClient.get<AttendanceJobStatusResponse>(
+    `/classes/${classId}/attendance/jobs/${jobId}/status`
+  );
+}
+
+export async function pollAttendanceJobUntilComplete(
+  classId: string,
+  jobId: string,
+  options: {
+    maxAttempts?: number;
+    initialDelayMs?: number;
+    maxDelayMs?: number;
+    onStatusChange?: (status: AttendanceJobStatusResponse) => void;
+  } = {}
+): Promise<AttendanceJobStatusResponse> {
+  const {
+    maxAttempts = 40,
+    initialDelayMs = 1000,
+    maxDelayMs = 5000,
+    onStatusChange,
+  } = options;
+
+  let attempts = 0;
+  let delay = initialDelayMs;
+
+  while (attempts < maxAttempts) {
+    const status = await getAttendanceJobStatus(classId, jobId);
+    onStatusChange?.(status);
+
+    if (status.status === 'SUCCEEDED' || status.status === 'FAILED') {
+      return status;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    delay = Math.min(delay * 1.5, maxDelayMs);
+    attempts += 1;
+  }
+
+  throw new Error('Attendance processing timed out');
 }
 
 /**

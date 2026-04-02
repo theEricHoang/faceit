@@ -14,7 +14,13 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAttendancePhotoStore } from '@/stores/attendance-photo-store';
-import { getAttendanceUploadUrl, uploadPhotoToS3 } from '@/services/classes-service';
+import {
+  getAttendanceSessionUploadUrl,
+  getAttendanceUploadUrl,
+  pollAttendanceJobUntilComplete,
+  processAttendanceSession,
+  uploadPhotoToS3,
+} from '@/services/classes-service';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const THUMBNAIL_GAP = 8;
@@ -32,6 +38,7 @@ export default function ReviewPhotosScreen() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
+  const [uploadPhase, setUploadPhase] = useState('Preparing upload...');
 
   const handleAddMore = () => {
     router.back();
@@ -44,21 +51,41 @@ export default function ReviewPhotosScreen() {
     setUploadProgress({ current: 0, total: photos.length });
 
     try {
+      setUploadPhase('Preparing batch...');
+      const firstUpload = await getAttendanceUploadUrl(params.id);
+      const sessionId = firstUpload.session_id;
+      const jobId = firstUpload.job_id;
+
       for (let i = 0; i < photos.length; i++) {
         setUploadProgress({ current: i + 1, total: photos.length });
 
-        // 1. Get a presigned upload URL from the backend
-        const { upload_url } = await getAttendanceUploadUrl(params.id);
+        setUploadPhase(`Uploading ${i + 1} of ${photos.length}...`);
+        const uploadTarget =
+          i === 0
+            ? firstUpload
+            : await getAttendanceSessionUploadUrl(params.id, sessionId);
 
-        // 2. Upload the photo directly to S3
-        await uploadPhotoToS3(upload_url, photos[i]);
+        await uploadPhotoToS3(uploadTarget.upload_url, photos[i]);
+      }
+
+      setUploadPhase('Processing attendance...');
+      await processAttendanceSession(params.id, sessionId);
+
+      const result = await pollAttendanceJobUntilComplete(params.id, jobId, {
+        onStatusChange: (status) => {
+          setUploadPhase(`Processing attendance... ${status.status}`);
+        },
+      });
+
+      if (result.status === 'FAILED') {
+        throw new Error(result.error_message || 'Attendance processing failed.');
       }
 
       const count = photos.length;
       clearPhotos();
       Alert.alert(
-        'Photos Submitted',
-        `${count} photo${count > 1 ? 's' : ''} uploaded for attendance.`,
+        'Attendance Submitted',
+        `${count} photo${count > 1 ? 's' : ''} processed. ${result.present_count ?? 0} students marked present and ${result.unknown_count ?? 0} faces remained unknown.`,
         [{ text: 'OK', onPress: () => router.dismiss(2) }],
       );
     } catch (e: any) {
@@ -128,8 +155,9 @@ export default function ReviewPhotosScreen() {
         <View style={styles.uploadOverlay}>
           <View style={styles.uploadCard}>
             <ActivityIndicator size="large" color="#000" />
-            <Text style={styles.uploadText}>
-              Uploading {uploadProgress.current} of {uploadProgress.total}...
+            <Text style={styles.uploadText}>{uploadPhase}</Text>
+            <Text style={styles.uploadSubtext}>
+              {uploadProgress.current} of {uploadProgress.total} photos uploaded
             </Text>
           </View>
         </View>
@@ -297,6 +325,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#030213',
+  },
+  uploadSubtext: {
+    fontSize: 14,
+    color: '#717182',
   },
   bottomBar: {
     flexDirection: 'row',

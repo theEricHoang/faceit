@@ -26,4 +26,7 @@ class JobStatusResponse(BaseModel):
     status: JobStatus
     kind: JobKind
     error_message: str | None = None
+    # Summary fields (populated for ATTENDANCE jobs after completion)
+    present_count: int | None = None
+    unknown_count: int | None = None
     updated_at: datetime

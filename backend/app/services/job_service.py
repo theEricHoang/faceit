@@ -153,7 +153,7 @@ class JobService:
         try:
             result = (
                 self.client.table("jobs")
-                .select("id, kind, status, error_message, updated_at")
+                .select("id, kind, status, error_message, present_count, unknown_count, updated_at")
                 .eq("id", str(job_id))
                 .eq("owner_user_id", str(owner_user_id))
                 .single()
@@ -171,6 +171,8 @@ class JobService:
             status=row["status"],
             kind=row["kind"],
             error_message=row["error_message"],
+            present_count=row.get("present_count"),
+            unknown_count=row.get("unknown_count"),
             updated_at=row["updated_at"],
         )
 
@@ -197,7 +199,7 @@ class JobService:
         try:
             result = (
                 self.client.table("jobs")
-                .select("id, kind, status, error_message, updated_at")
+                .select("id, kind, status, error_message, present_count, unknown_count, updated_at")
                 .eq("id", job_id)
                 .eq("owner_user_id", owner_user_id)
                 .single()
@@ -320,7 +322,7 @@ class JobService:
             job_id: The UUID for the new job.
             user_id: The owner's user ID.
             bucket: S3 bucket where the photo will be uploaded.
-            key: S3 object key for the photo.
+            key: S3 key prefix for all photos in the session batch.
 
         Returns:
             The created job row data.
@@ -405,6 +407,7 @@ class JobService:
                     "job_id": job_id,
                     "user_id": user_id,
                     "class_id": class_id,
+                    "session_id": session_id,
                     "s3_bucket": job.get("s3_bucket"),
                     "s3_key": job.get("s3_key"),
                 },

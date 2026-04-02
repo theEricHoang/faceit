@@ -67,9 +67,70 @@ async def process_attendance_job(
             detail="No attendance session found for this job",
         )
 
+    # Ensure the job's session belongs to the requested class_id.
+    try:
+        attendance_service.get_session(UUID(session_id), class_id)
+    except SessionNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No attendance session found for this class and job",
+        )
+
     try:
         return job_service.enqueue_attendance_job(
             job_id=str(job_id),
+            user_id=str(current_user.user_id),
+            class_id=str(class_id),
+            session_id=str(session_id),
+        )
+    except JobNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except (JobNotPendingError, JobOwnershipError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except CreateJobError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post(
+    "/{class_id}/attendance/sessions/{session_id}/process",
+    response_model=CreateAttendanceJobResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def process_attendance_session(
+    class_id: UUID,
+    session_id: UUID,
+    current_user: CurrentUser = Depends(require_instructor),
+    query_service: ClassQueryService = Depends(get_query_service),
+    attendance_service: AttendanceService = Depends(get_attendance_service),
+    job_service: JobService = Depends(get_job_service),
+) -> CreateAttendanceJobResponse:
+    """Enqueue processing for a multi-image attendance session."""
+    if not query_service.instructor_has_class(current_user.user_id, class_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found",
+        )
+
+    try:
+        session = attendance_service.get_session(session_id, class_id)
+    except SessionNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+
+    try:
+        return job_service.enqueue_attendance_job(
+            job_id=str(session["job_id"]),
             user_id=str(current_user.user_id),
             class_id=str(class_id),
             session_id=str(session_id),

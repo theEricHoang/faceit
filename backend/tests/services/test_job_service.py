@@ -272,6 +272,8 @@ class TestGetJobStatus:
                 "kind": "ENROLLMENT",
                 "status": "PENDING",
                 "error_message": None,
+                "present_count": None,
+                "unknown_count": None,
                 "updated_at": "2026-03-04T12:00:00Z",
             }
         )
@@ -281,7 +283,7 @@ class TestGetJobStatus:
 
         mock_client.table.assert_called_with("jobs")
         table.select.assert_called_once_with(
-            "id, kind, status, error_message, updated_at"
+            "id, kind, status, error_message, present_count, unknown_count, updated_at"
         )
         # eq is called twice: once for id, once for owner_user_id
         eq_calls = select_chain.eq.call_args_list
@@ -486,6 +488,7 @@ class TestEnqueueAttendanceJob:
         assert body["job_id"] == TEST_JOB_ID
         assert body["user_id"] == TEST_USER_ID
         assert body["class_id"] == TEST_CLASS_ID
+        assert body["session_id"] == TEST_SESSION_ID
         assert body["s3_bucket"] == TEST_BUCKET
         assert body["s3_key"] == "attendance-photos/test.jpg"
 

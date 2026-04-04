@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.api.deps import (
     get_attendance_service,
@@ -15,6 +15,7 @@ from app.schemas.job import JobStatusResponse
 from app.schemas.user import CurrentUser
 from app.services.attendance_service import (
     AttendanceService,
+    AttendancePdfGenerationError,
     SessionNotFoundError,
 )
 from app.services.classes.class_query_service import ClassService as ClassQueryService
@@ -215,3 +216,44 @@ async def get_attendance_session_report(
         )
 
     return AttendanceSessionResponse(**report)
+
+
+@router.get(
+    "/{class_id}/attendance/sessions/{session_id}/pdf",
+    status_code=status.HTTP_200_OK,
+)
+async def download_attendance_session_report_pdf(
+    class_id: UUID,
+    session_id: UUID,
+    current_user: CurrentUser = Depends(require_instructor),
+    query_service: ClassQueryService = Depends(get_query_service),
+    attendance_service: AttendanceService = Depends(get_attendance_service),
+) -> Response:
+    """Download a printable PDF version of a single session attendance report."""
+    if not query_service.instructor_has_class(current_user.user_id, class_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found",
+        )
+
+    try:
+        report = attendance_service.get_session_report(session_id, class_id)
+        class_details = query_service.get_class_details(class_id)
+        pdf_bytes = attendance_service.build_session_report_pdf(report, class_details)
+    except SessionNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+    except AttendancePdfGenerationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+    filename = f"attendance-report-{class_id}-{session_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

@@ -24,6 +24,13 @@ export default function ClassLayout() {
           headerBackTitle: 'Camera',
         }}
       />
+      <Stack.Screen
+        name="attendance-report"
+        options={{
+          title: 'Attendance Report',
+          headerBackTitle: 'Back',
+        }}
+      />
     </Stack>
   );
 }

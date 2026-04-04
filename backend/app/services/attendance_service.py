@@ -1,7 +1,16 @@
 """Service for fetching attendance session reports."""
 
 import logging
+from io import BytesIO
+from textwrap import wrap
 from uuid import UUID
+
+import matplotlib
+
+matplotlib.use("Agg")
+
+from matplotlib import pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 from supabase import Client
 
@@ -29,6 +38,12 @@ class SessionNotFoundError(AttendanceServiceError):
 
 class CreateSessionError(AttendanceServiceError):
     """Raised when a new attendance session cannot be created."""
+
+    pass
+
+
+class AttendancePdfGenerationError(AttendanceServiceError):
+    """Raised when a session PDF cannot be generated."""
 
     pass
 
@@ -236,3 +251,132 @@ class AttendanceService:
             raise AttendanceServiceError(
                 f"Failed to fetch session report: {e}"
             ) from e
+
+    def build_session_report_pdf(
+        self,
+        report: dict,
+        class_details: dict | None = None,
+    ) -> bytes:
+        """Render a printable PDF for a single attendance session report."""
+        try:
+            return self._build_session_report_pdf(report, class_details)
+        except AttendancePdfGenerationError:
+            raise
+        except Exception as e:
+            logger.exception("Failed to build attendance session PDF")
+            raise AttendancePdfGenerationError(
+                f"Failed to generate attendance PDF: {e}"
+            ) from e
+
+    def _build_session_report_pdf(
+        self,
+        report: dict,
+        class_details: dict | None = None,
+    ) -> bytes:
+        session_id = report.get("session_id", "-")
+        class_id = report.get("class_id", "-")
+        created_at = report.get("created_at")
+        present_students = report.get("present_students") or []
+        unknown_count = report.get("unknown_count", 0)
+
+        class_title_parts = [
+            class_details.get("course_code") if class_details else None,
+            class_details.get("course_name") if class_details else None,
+            f"Section {class_details.get('section')}" if class_details and class_details.get("section") else None,
+        ]
+        class_title = " - ".join(part for part in class_title_parts if part) or f"Class {class_id}"
+
+        meta_lines = [
+            f"Session ID: {session_id}",
+            f"Class ID: {class_id}",
+        ]
+        if created_at:
+            meta_lines.append(f"Session Time: {created_at}")
+        if class_details:
+            schedule = class_details.get("schedule")
+            room = class_details.get("room")
+            instructor_name = class_details.get("instructor_name")
+            if schedule:
+                meta_lines.append(f"Schedule: {schedule}")
+            if room:
+                meta_lines.append(f"Room: {room}")
+            if instructor_name:
+                meta_lines.append(f"Instructor: {instructor_name}")
+
+        summary_lines = [
+            f"Present students: {len(present_students)}",
+            f"Unknown faces: {unknown_count}",
+        ]
+
+        buffer = BytesIO()
+        with PdfPages(buffer) as pdf:
+            self._add_pdf_page(
+                pdf,
+                title="Attendance Session Report",
+                subtitle=class_title,
+                lines=[*meta_lines, "", *summary_lines],
+            )
+
+            if present_students:
+                page_size = 24
+                total_pages = (len(present_students) + page_size - 1) // page_size
+                for page_index in range(total_pages):
+                    start = page_index * page_size
+                    end = start + page_size
+                    chunk = present_students[start:end]
+                    row_lines = []
+                    for offset, student in enumerate(chunk, start=start + 1):
+                        name = f"{student.get('first_name', '')} {student.get('last_name', '')}".strip() or "Unknown student"
+                        confidence = student.get("confidence")
+                        confidence_text = (
+                            f"{confidence:.2f}" if isinstance(confidence, (int, float)) else "-"
+                        )
+                        row_lines.append(f"{offset}. {name}  |  Confidence: {confidence_text}")
+
+                    self._add_pdf_page(
+                        pdf,
+                        title="Present Students",
+                        subtitle=f"{class_title} - Page {page_index + 1} of {total_pages}",
+                        lines=row_lines,
+                    )
+            else:
+                self._add_pdf_page(
+                    pdf,
+                    title="Present Students",
+                    subtitle=f"{class_title} - No recognized students",
+                    lines=["No enrolled students were recognized in this session."],
+                )
+
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def _add_pdf_page(
+        self,
+        pdf: PdfPages,
+        *,
+        title: str,
+        subtitle: str,
+        lines: list[str],
+    ) -> None:
+        fig = plt.figure(figsize=(8.27, 11.69))
+        ax = fig.add_subplot(111)
+        ax.axis("off")
+
+        ax.text(0.05, 0.96, title, fontsize=20, fontweight="bold", va="top")
+        wrapped_subtitle = wrap(subtitle, width=70) or [""]
+        y = 0.91
+        for subtitle_line in wrapped_subtitle:
+            ax.text(0.05, y, subtitle_line, fontsize=11, color="#444444", va="top")
+            y -= 0.028
+
+        y -= 0.02
+        for line in lines:
+            if not line:
+                y -= 0.018
+                continue
+            for wrapped_line in wrap(line, width=90) or [""]:
+                ax.text(0.05, y, wrapped_line, fontsize=11, va="top")
+                y -= 0.024
+
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)

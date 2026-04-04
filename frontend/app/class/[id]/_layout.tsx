@@ -24,6 +24,13 @@ export default function ClassLayout() {
           headerBackTitle: 'Camera',
         }}
       />
+      <Stack.Screen
+        name="attendance-session/[sessionId]"
+        options={{
+          title: 'Session Details',
+          headerBackTitle: 'Class',
+        }}
+      />
     </Stack>
   );
 }

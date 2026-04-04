@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, ScrollView, Modal, Alert } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getClassDetails, withdrawFromClass, type ClassDetailResponse } from '@/services/classes-service';
+import { MOCK_INSTRUCTOR_SESSIONS } from '@/mocks/attendance-session-details';
 import { useAuthStore } from '@/stores/auth-store';
 
 const MOCK_STUDENT_ATTENDANCE_RECORDS = [
@@ -16,19 +17,6 @@ const MOCK_STUDENT_ATTENDANCE_RECORDS = [
   { date: '2025-10-04', status: 'present' as const },
   { date: '2025-10-02', status: 'present' as const },
   { date: '2025-09-29', status: 'present' as const },
-];
-
-const MOCK_INSTRUCTOR_SESSIONS = [
-  { date: '2025-09-29', presentCount: 38, totalStudents: 50 },
-  { date: '2025-10-02', presentCount: 41, totalStudents: 50 },
-  { date: '2025-10-04', presentCount: 43, totalStudents: 50 },
-  { date: '2025-10-06', presentCount: 39, totalStudents: 50 },
-  { date: '2025-10-09', presentCount: 42, totalStudents: 50 },
-  { date: '2025-10-11', presentCount: 44, totalStudents: 50 },
-  { date: '2025-10-13', presentCount: 40, totalStudents: 50 },
-  { date: '2025-10-16', presentCount: 46, totalStudents: 50 },
-  { date: '2025-10-18', presentCount: 41, totalStudents: 50 },
-  { date: '2025-10-20', presentCount: 45, totalStudents: 50 },
 ];
 
 type TrendChartPoint = {
@@ -273,7 +261,7 @@ export default function ClassDetailsScreen() {
                   const sessionAttendanceRate = Math.round((session.presentCount / session.totalStudents) * 100);
 
                   return (
-                    <View key={session.date} style={styles.sessionCard}>
+                    <View key={session.id} style={styles.sessionCard}>
                       <View style={styles.sessionRowTop}>
                         <View>
                           <Text style={styles.valueText}>{formatDate(session.date)}</Text>
@@ -287,10 +275,10 @@ export default function ClassDetailsScreen() {
                       </View>
 
                       <Pressable
-                        style={[styles.outlineButton, styles.disabledOutlineButton]}
-                        disabled
+                        style={styles.outlineButton}
+                        onPress={() => router.push(`/class/${params.id}/attendance-session/${session.id}`)}
                       >
-                        <Text style={styles.disabledOutlineButtonText}>View Details</Text>
+                        <Text style={styles.outlineButtonText}>View Details</Text>
                       </Pressable>
                     </View>
                   );
@@ -489,6 +477,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  outlineButtonText: {
+    color: '#030213',
+    fontWeight: '600',
   },
   secondaryActionButton: {
     flexDirection: 'row',

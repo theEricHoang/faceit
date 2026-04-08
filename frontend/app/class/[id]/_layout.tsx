@@ -25,6 +25,13 @@ export default function ClassLayout() {
         }}
       />
       <Stack.Screen
+        name="attendance-report"
+        options={{
+          title: 'Attendance Report',
+          headerBackTitle: 'Back',
+        }}
+      />
+      <Stack.Screen
         name="attendance-session/[sessionId]"
         options={{
           title: 'Session Details',

@@ -104,6 +104,21 @@ async function request<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
+  const response = await requestRaw(method, endpoint, options);
+
+  // Handle empty responses (204 No Content)
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json();
+}
+
+async function requestRaw(
+  method: RequestMethod,
+  endpoint: string,
+  options: RequestOptions = {}
+): Promise<Response> {
   const { headers = {}, body, skipAuth = false } = options;
 
   const requestHeaders: Record<string, string> = {
@@ -164,18 +179,16 @@ async function request<T>(
     );
   }
 
-  // Handle empty responses (204 No Content)
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json();
+  return response;
 }
 
 // API client methods
 export const apiClient = {
   get: <T>(endpoint: string, options?: Omit<RequestOptions, 'body'>) =>
     request<T>('GET', endpoint, options),
+
+  raw: (endpoint: string, options?: Omit<RequestOptions, 'body'>) =>
+    requestRaw('GET', endpoint, options),
 
   post: <T>(endpoint: string, body?: unknown, options?: RequestOptions) =>
     request<T>('POST', endpoint, { ...options, body }),

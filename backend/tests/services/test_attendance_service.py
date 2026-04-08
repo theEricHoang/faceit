@@ -212,6 +212,40 @@ class TestGetSessionReport:
             service.get_session_report(SESSION_ID, CLASS_ID)
 
 
+class TestBuildSessionReportPdf:
+    """Tests for AttendanceService.build_session_report_pdf."""
+
+    def test_builds_a_pdf_document(self):
+        service = AttendanceService(client=MagicMock())
+        pdf_bytes = service.build_session_report_pdf(
+            {
+                "session_id": str(SESSION_ID),
+                "class_id": str(CLASS_ID),
+                "created_at": "2026-03-06T10:00:00Z",
+                "present_students": [
+                    {
+                        "student_id": STUDENT_A_ID,
+                        "first_name": "Jane",
+                        "last_name": "Smith",
+                        "confidence": 0.94,
+                    },
+                ],
+                "unknown_count": 1,
+            },
+            {
+                "course_code": "CS101",
+                "course_name": "Intro to Computing",
+                "section": "A",
+                "schedule": "Mon/Wed 10:00 AM",
+                "room": "Room 12",
+                "instructor_name": "Dr. Ada Lovelace",
+            },
+        )
+
+        assert pdf_bytes.startswith(b"%PDF")
+        assert len(pdf_bytes) > 1000
+
+
 # ---------------------------------------------------------------------------
 # CreateSession Tests
 # ---------------------------------------------------------------------------

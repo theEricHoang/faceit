@@ -328,9 +328,14 @@ export default function ClassDetailsScreen() {
                   <Text style={styles.cardTitle}>Session History</Text>
                   <Text style={styles.helperText}>Review attendance by class meeting</Text>
                 </View>
-                <Pressable style={[styles.secondaryActionButton, styles.disabledActionButton, styles.reportButton]} disabled>
-                  <Ionicons name="document-text-outline" size={16} color="#8a8a97" />
-                  <Text style={styles.disabledActionText}>View Attendance Report</Text>
+                <Pressable
+                  style={[styles.secondaryActionButton, styles.reportButton]}
+                  onPress={() => {
+                    router.push(`/class/${params.id}/attendance-report?mock=1&viewer=instructor`);
+                  }}
+                >
+                  <Ionicons name="document-text-outline" size={16} color="#030213" />
+                  <Text style={styles.valueText}>View Attendance Report</Text>
                 </Pressable>
               </View>
 
@@ -412,6 +417,16 @@ export default function ClassDetailsScreen() {
                   </View>
                 </View>
               ))}
+
+              <Pressable
+                style={[styles.secondaryActionButton, { alignSelf: 'flex-start' }]}
+                onPress={() => {
+                  router.push(`/class/${params.id}/attendance-report?mock=1&viewer=student`);
+                }}
+              >
+                <Ionicons name="document-outline" size={16} color="#030213" />
+                <Text style={styles.valueText}>Generate My Attendance Report</Text>
+              </Pressable>
             </View>
           </>
         )}

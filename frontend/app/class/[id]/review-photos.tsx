@@ -86,7 +86,13 @@ export default function ReviewPhotosScreen() {
       Alert.alert(
         'Attendance Submitted',
         `${count} photo${count > 1 ? 's' : ''} processed. ${result.present_count ?? 0} students marked present and ${result.unknown_count ?? 0} faces remained unknown.`,
-        [{ text: 'OK', onPress: () => router.dismiss(2) }],
+        [
+          {
+            text: 'View Report',
+            onPress: () => router.replace(`/class/${params.id}/attendance-report?sessionId=${sessionId}`),
+          },
+          { text: 'Close', style: 'cancel', onPress: () => router.dismiss(2) },
+        ],
       );
     } catch (e: any) {
       Alert.alert('Upload Failed', e?.message || 'Failed to upload photos. Please try again.');

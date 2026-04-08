@@ -81,6 +81,21 @@ export interface AttendanceJobStatusResponse {
   updated_at: string;
 }
 
+export interface AttendancePresentStudent {
+  student_id: string;
+  first_name: string;
+  last_name: string;
+  confidence: number | null;
+}
+
+export interface AttendanceSessionReportResponse {
+  session_id: string;
+  class_id: string;
+  created_at: string | null;
+  present_students: AttendancePresentStudent[];
+  unknown_count: number;
+}
+
 /**
  * Get all classes for the current authenticated user
  * Returns instructor's classes or student's enrolled classes based on user type
@@ -156,6 +171,22 @@ export async function getAttendanceJobStatus(
   return apiClient.get<AttendanceJobStatusResponse>(
     `/classes/${classId}/attendance/jobs/${jobId}/status`
   );
+}
+
+export async function getAttendanceSessionReport(
+  classId: string,
+  sessionId: string
+): Promise<AttendanceSessionReportResponse> {
+  return apiClient.get<AttendanceSessionReportResponse>(
+    `/classes/${classId}/attendance/sessions/${sessionId}`
+  );
+}
+
+export async function getAttendanceSessionPdfResponse(
+  classId: string,
+  sessionId: string
+): Promise<Response> {
+  return apiClient.raw(`/classes/${classId}/attendance/sessions/${sessionId}/pdf`);
 }
 
 export async function pollAttendanceJobUntilComplete(

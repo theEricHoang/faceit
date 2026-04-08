@@ -50,3 +50,15 @@ class ClassDetailResponse(BaseModel):
 class WithdrawClassResponse(BaseModel):
     class_id: UUID
     student_id: UUID
+
+
+class EnrolledStudentItem(BaseModel):
+    student_id: UUID
+    first_name: str
+    last_name: str
+    email: str
+
+
+class ClassEnrolledStudentsResponse(BaseModel):
+    class_id: UUID
+    students: List[EnrolledStudentItem]

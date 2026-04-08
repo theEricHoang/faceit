@@ -2,7 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { getClassDetails, withdrawFromClass, type ClassDetailResponse } from '@/services/classes-service';
+import {
+  getClassDetails,
+  getClassEnrolledStudents,
+  withdrawFromClass,
+  type ClassDetailResponse,
+  type EnrolledStudent,
+} from '@/services/classes-service';
 import { MOCK_INSTRUCTOR_SESSIONS } from '@/mocks/attendance-session-details';
 import { useAuthStore } from '@/stores/auth-store';
 
@@ -124,6 +130,9 @@ export default function ClassDetailsScreen() {
   const user = useAuthStore((state) => state.user);
   const isInstructor = user?.type === 'instructor';
   const [details, setDetails] = useState<ClassDetailResponse | null>(null);
+  const [enrolledStudents, setEnrolledStudents] = useState<EnrolledStudent[]>([]);
+  const [showEnrolledStudents, setShowEnrolledStudents] = useState(false);
+  const [isLoadingStudents, setIsLoadingStudents] = useState(false);
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
 
   useEffect(() => {
@@ -140,6 +149,34 @@ export default function ClassDetailsScreen() {
     })();
     return () => { mounted = false; };
   }, [params.id]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      if (!isInstructor || !params.id) {
+        return;
+      }
+
+      try {
+        setIsLoadingStudents(true);
+        const res = await getClassEnrolledStudents(String(params.id));
+        if (mounted) {
+          setEnrolledStudents(res.students || []);
+        }
+      } catch (e: any) {
+        console.warn('Failed to fetch enrolled students', e?.message || e);
+      } finally {
+        if (mounted) {
+          setIsLoadingStudents(false);
+        }
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [isInstructor, params.id]);
 
   const presentCount = useMemo(() => MOCK_STUDENT_ATTENDANCE_RECORDS.filter(r => r.status === 'present').length, []);
   const totalSessions = MOCK_STUDENT_ATTENDANCE_RECORDS.length;
@@ -209,6 +246,52 @@ export default function ClassDetailsScreen() {
               <Ionicons name="camera-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
               <Text style={styles.primaryButtonText}>Take Attendance</Text>
             </Pressable>
+
+            <View style={styles.card}>
+              <Pressable
+                style={styles.dropdownHeaderButton}
+                onPress={() => setShowEnrolledStudents((prev) => !prev)}
+              >
+                <View style={styles.dropdownHeaderLeft}>
+                  <Ionicons name="people-outline" size={18} color="#000" />
+                  <Text style={styles.cardTitle}>Enrolled Students</Text>
+                  <Text style={styles.helperText}>({enrolledStudents.length})</Text>
+                </View>
+                <Ionicons
+                  name={showEnrolledStudents ? 'chevron-up-outline' : 'chevron-down-outline'}
+                  size={18}
+                  color="#000"
+                />
+              </Pressable>
+
+              {showEnrolledStudents && (
+                <View style={styles.dropdownListContainer}>
+                  {isLoadingStudents ? (
+                    <Text style={styles.helperText}>Loading students...</Text>
+                  ) : enrolledStudents.length === 0 ? (
+                    <Text style={styles.helperText}>No students enrolled yet.</Text>
+                  ) : (
+                    enrolledStudents.map((student) => {
+                      const fullName = `${student.first_name} ${student.last_name}`.trim() || student.email;
+
+                      return (
+                        <View key={student.student_id} style={styles.studentRow}>
+                          <View style={styles.studentAvatar}>
+                            <Text style={styles.studentAvatarText}>
+                              {fullName.slice(0, 1).toUpperCase()}
+                            </Text>
+                          </View>
+                          <View style={styles.studentTextGroup}>
+                            <Text style={styles.valueText}>{fullName}</Text>
+                            <Text style={styles.helperText}>{student.email}</Text>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              )}
+            </View>
 
             <View style={styles.card}>
               <View style={styles.sectionHeaderRow}>
@@ -407,6 +490,44 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 20, fontWeight: '700' },
   content: { padding: 16, flexGrow: 1, gap: 12 },
+  dropdownHeaderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dropdownHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dropdownListContainer: {
+    marginTop: 8,
+    gap: 8,
+  },
+  studentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f1f1',
+  },
+  studentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f3f3f3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  studentAvatarText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111',
+  },
+  studentTextGroup: {
+    flex: 1,
+  },
   card: {
     borderWidth: 1,
     borderColor: '#eee',

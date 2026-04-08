@@ -36,6 +36,20 @@ class Settings(BaseSettings):
     worker_poll_sleep_seconds: int = 2
     worker_embedding_mode: str = "v1"
 
+    # CORS configuration (comma-separated list of allowed origins)
+    cors_allow_origins: str = (
+        "http://localhost:8081,"
+        "http://127.0.0.1:8081,"
+        "http://localhost:19006,"
+        "http://127.0.0.1:19006,"
+        "http://localhost:3000,"
+        "http://127.0.0.1:3000"
+    )
+
+    def parsed_cors_allow_origins(self) -> list[str]:
+        """Return configured CORS origins as a cleaned list."""
+        return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
+
 
 @lru_cache
 def get_settings() -> Settings:

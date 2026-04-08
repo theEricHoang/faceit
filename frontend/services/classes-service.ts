@@ -53,6 +53,18 @@ export interface ClassDetailResponse {
   instructor_name: string;
 }
 
+export interface EnrolledStudent {
+  student_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+}
+
+export interface ClassEnrolledStudentsResponse {
+  class_id: string;
+  students: EnrolledStudent[];
+}
+
 export interface WithdrawClassResponse {
   class_id: string;
   student_id: string;
@@ -115,6 +127,13 @@ export async function joinClassBySection(data: JoinClassRequest): Promise<JoinCl
  */
 export async function getClassDetails(classId: string): Promise<ClassDetailResponse> {
   return apiClient.get<ClassDetailResponse>(`/classes/${classId}`);
+}
+
+/**
+ * Get enrolled students for a class (instructor only)
+ */
+export async function getClassEnrolledStudents(classId: string): Promise<ClassEnrolledStudentsResponse> {
+  return apiClient.get<ClassEnrolledStudentsResponse>(`/classes/${classId}/students`);
 }
 
 /**

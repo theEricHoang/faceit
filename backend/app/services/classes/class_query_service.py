@@ -26,3 +26,6 @@ class ClassService:
 
 	def instructor_has_class(self, instructor_id: UUID, class_id: UUID) -> bool:
 		return self.read_repo.instructor_has_class(instructor_id, class_id)
+
+	def get_class_enrolled_students(self, class_id: UUID) -> List[dict]:
+		return self.read_repo.get_class_enrolled_students(class_id)

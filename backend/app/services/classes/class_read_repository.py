@@ -95,3 +95,44 @@ class ClassReadRepository:
 			return bool(result.data)
 		except Exception as e:
 			raise ClassReadError(f"Failed to validate instructor class ownership: {e}")
+
+	def get_class_enrolled_students(self, class_id: UUID) -> List[dict]:
+		"""Fetch enrolled students for a class with profile info."""
+		try:
+			enrollments = (
+				self.client
+				.table("student_classes")
+				.select("student_id")
+				.eq("class_id", str(class_id))
+				.execute()
+			)
+			student_ids = [row.get("student_id") for row in (enrollments.data or []) if row.get("student_id")]
+
+			if not student_ids:
+				return []
+
+			profiles_res = (
+				self.client
+				.table("profiles")
+				.select("id, first_name, last_name")
+				.in_("id", student_ids)
+				.execute()
+			)
+
+			profiles_by_id = {str(profile.get("id")): profile for profile in (profiles_res.data or [])}
+
+			students: List[dict] = []
+			for student_id in student_ids:
+				profile = profiles_by_id.get(str(student_id), {})
+				students.append(
+					{
+						"student_id": student_id,
+						"first_name": profile.get("first_name") or "",
+						"last_name": profile.get("last_name") or "",
+						"email": profile.get("email") or "",
+					}
+				)
+
+			return students
+		except Exception as e:
+			raise ClassReadError(f"Failed to fetch enrolled students: {e}")

@@ -2,7 +2,18 @@
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.schemas.course import CreateClassRequest, CreateClassResponse, ListClassesResponse, ClassListItem, JoinClassRequest, JoinClassResponse, ClassDetailResponse, WithdrawClassResponse
+from app.schemas.course import (
+    CreateClassRequest,
+    CreateClassResponse,
+    ListClassesResponse,
+    ClassListItem,
+    JoinClassRequest,
+    JoinClassResponse,
+    ClassDetailResponse,
+    WithdrawClassResponse,
+    ClassEnrolledStudentsResponse,
+    EnrolledStudentItem,
+)
 from app.schemas.image import UploadUrlResponse
 from app.schemas.user import CurrentUser
 from app.services.classes.class_query_service import ClassService as ClassQueryService
@@ -99,6 +110,37 @@ async def get_class_details(
             room=cls.get("room"),
             instructor_name=cls.get("instructor_name") or "",
         )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{class_id}/students", response_model=ClassEnrolledStudentsResponse)
+async def get_class_enrolled_students(
+    class_id: UUID,
+    current_user: CurrentUser = Depends(require_instructor),
+    query_service: ClassQueryService = Depends(get_query_service),
+):
+    """Get enrolled students for a class. Instructors only."""
+    try:
+        has_access = query_service.instructor_has_class(current_user.user_id, class_id)
+        if not has_access:
+            raise HTTPException(status_code=404, detail="Class not found")
+
+        students = query_service.get_class_enrolled_students(class_id)
+        return ClassEnrolledStudentsResponse(
+            class_id=class_id,
+            students=[
+                EnrolledStudentItem(
+                    student_id=UUID(str(student.get("student_id"))),
+                    first_name=student.get("first_name") or "",
+                    last_name=student.get("last_name") or "",
+                    email=student.get("email") or "",
+                )
+                for student in students
+            ],
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
